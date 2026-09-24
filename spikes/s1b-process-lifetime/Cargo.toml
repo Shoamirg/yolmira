@@ -1,0 +1,20 @@
+# Spike S1b (docs/ARCHITECTURE.md §17 Q10). Throwaway code: findings matter, not this crate.
+[package]
+name = "s1b-process-lifetime"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+portable-pty = "0.9"
+serde_json = "1"
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Console",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+# Standalone: not part of the future product workspace.
+[workspace]
