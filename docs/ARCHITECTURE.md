@@ -93,7 +93,7 @@ Consequences: task completion, tool calls, costs, and approvals come from typed 
 | Where | Survives UI close | Survives `amirid` crash | Survives network drop | Mechanism |
 |---|---|---|---|---|
 | Local Windows PTY | yes | **no** `[VERIFIED by spike S1: child dies ≤3 s after host kill, ≤1 s after pseudoconsole close — spikes/s1-conpty/FINDINGS.md]` | n/a | ConPTY owned by `amirid` |
-| Local structured agent | yes | process: no; **conversation: yes** | n/a | Agent's own session store + `--resume` / thread resume |
+| Local structured agent | yes | process: no, **enforced** by a kill-on-close Job Object (S1b showed a child that ignores stdin EOF survives as an orphan otherwise); **conversation: yes** | n/a | Agent's own session store + `--resume` / thread resume |
 | WSL | yes | yes | n/a | tmux inside WSL |
 | Remote Linux | yes | yes | yes | tmux on the remote + append-only journal (§10.5) |
 
@@ -593,6 +593,8 @@ A phase is complete only when its exit criteria (§16) pass on the Windows CI ru
 - S1 ConPTY: portable-pty on the target Windows build: interactive `pwsh`, ANSI, resize, Ctrl+C, and **what happens to the child when the host process dies** (settles D3).
 - S2 Claude stream-json: bidirectional stdin/stdout session, `--session-id`/`--resume`, interrupt, `--permission-prompt-tool` round-trip through a toy MCP server; record raw fixtures.
 - S3 Codex app-server: thread/turn lifecycle, approval request round-trip, interrupt, shutdown behavior; decide `codex-codes` vs. own client.
+- S2 and S3 both: close stdin mid-turn and record whether the CLI and its child processes exit (S1b showed a child that ignores EOF survives as an orphan). Run within the approved limits in `docs/decisions.md`.
+- S1b Process lifetime (done): host kill vs. ConPTY and pipe children; cause of death recorded. See `spikes/s1b-process-lifetime/FINDINGS.md`.
 - S4 russh on Windows: key auth via Windows ssh-agent pipe, PTY into tmux, SFTP, reconnect.
 - S5 AgentsCommander evaluation (§2.1): fork / lift / reference.
 - Exit: a one-page findings note per spike; this document updated, with `[UNVERIFIED]` tags resolved or converted to risks.
@@ -665,7 +667,7 @@ Exit: clean Windows Sandbox install test passes.
 7. Minimum trust bar for third-party crates/repos (§5.3).
 8. Licensing for AMIRI itself (MIT/Apache-2.0 dual is the Rust norm and compatible with the MIT/Apache sources above).
 9. Code signing: acquire a certificate, use a foundation program (as AgentsCommander plans with SignPath), or ship unsigned initially?
-10. `amiri-sessiond` (a minimal process owning only the ConPTYs so local shells survive an `amirid` crash or upgrade, §D3). **Deferred.** In v1 a daemon crash marks sessions UNKNOWN; agent conversations resume from the providers' own session stores; long-running work goes through tmux in WSL or on a remote machine, which already survives. Decide once there is data on real `amirid` crash frequency and on S1b's finding of *why* children die (console close vs. job object).
+10. `amiri-sessiond` (a minimal process owning only the ConPTYs so local shells survive an `amirid` crash or upgrade, §D3). **Deferred.** In v1 a daemon crash marks sessions UNKNOWN; agent conversations resume from the providers' own session stores; long-running work goes through tmux in WSL or on a remote machine, which already survives. Decide once there is data on real `amirid` crash frequency. S1b settled the mechanism: ConPTY children die from `CTRL_CLOSE_EVENT` when the owning process dies (no job object involved), so a separate `amiri-sessiond` would keep them alive. The option is technically sound; only its value is open.
 
 ---
 
