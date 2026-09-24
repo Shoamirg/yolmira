@@ -19,6 +19,13 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 | 2026-09-24 | Agent containment | **Approved:** `amirid` holds agent processes in a kill-on-close Job Object. Scope and startup reconciliation as in ARCHITECTURE §9.6. | S3 must confirm that it kills Codex's grandchildren. |
 | 2026-09-24 | Spike prerequisites | Each spike's findings record the integrity level line from `whoami /groups \| findstr S-1-16-8192` (Medium = not elevated; match the SID, since the label is localized). The env probe runs in the same non-admin window. | — |
 | 2026-09-24 | S4 SSH target | Disposable: a throwaway WSL distro with the distro's own `openssh-server` on localhost only (preferred), or a Docker image pulled **by digest** with the digest recorded. A fresh key pair generated only for S4; real keys never used. | — |
+| 2026-09-24 | UAC | The dev machine had UAC off (`EnableLUA=0`); re-enabled. `amiri doctor` fails on `EnableLUA=0` (ARCHITECTURE §6.5). | `spikes/s0-environment/FINDINGS.md` |
+| 2026-09-24 | Ctrl+C in shells (S1 non-admin) | **Approved:** `amirid` clears the inherited ignore-Ctrl+C flag at startup (`SetConsoleCtrlHandler(NULL, FALSE)`) so shells under it get Ctrl+C. **And** it installs its own console handler that ignores Ctrl+C/Ctrl+Break and shuts down cleanly on console close/logoff/shutdown. A spike check covers both: a child shell is interrupted by Ctrl+C, and `amirid` survives one. | S1d |
+| 2026-09-24 | Child environment | **Allowlist:** each child's environment is built from fresh Windows values (registry machine + user, system variables) plus deliberate additions. Nothing from `amirid`'s own environment is passed through implicitly. | Fixes the stale PATH; keeps daemon secrets out of agents. |
+| 2026-09-24 | S2 go | **Approved** within the S2/S3 limits, including the check that `claude` exits when its stdin closes. | — |
+| 2026-09-24 | S4 image | **Approved:** official Ubuntu WSL image, SHA-256 **verified** against Ubuntu's published `SHA256SUMS` (and its GPG signature if published). Distro `amiri-s4-sshd`, key-only auth, `127.0.0.1` only, non-default port. Removed with `wsl --unregister` at the end, teardown recorded. | — |
+| 2026-09-24 | Destructive git | No `git checkout -- <path>`, `git reset`, `git clean` or other change-discarding git command in this repo without asking the user first (the same rule AMIRI's Policy Engine will enforce). | — |
+| 2026-09-24 | Codex | User installs and logs in to Codex themselves; S3 runs last and records whether Codex works natively on Windows or needs WSL. | — |
 
 ## Still open
 
