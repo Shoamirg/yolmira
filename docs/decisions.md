@@ -17,6 +17,7 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 
 ## Still open
 
+- **S5 outcome — pending reviewer agreement:** static review recommends changing Q2 from "lift" to **reference only**. The PTY layer is ~51k lines coupled to Tauri and AC's product model. Reimplement its Job Object pattern, resize gate and argument adapters instead. See `spikes/s5-agentscommander/FINDINGS.md`. The build-and-run day still needs a non-admin session.
 - Q10 `amiri-sessiond` — deferred (§17 Q10)
 
 - Q5 default `plan_approval` (recommended: ASK)
