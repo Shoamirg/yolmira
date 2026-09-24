@@ -15,9 +15,13 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 | 2026-09-24 | S2/S3 limits | Approved with limits: cheap model, small `--max-turns`, throwaway scratch folder (not this repo), minimal `--allowedTools`, non-admin session, trivial prompts plus one file-write to exercise the permission round-trip. Raw streams saved as fixtures. | Spend expected in cents. |
 | 2026-09-24 | Spike order | S5 (AgentsCommander) next; S4 alongside against a Docker OpenSSH container or an sshd in WSL if no GPU server is available yet. | — |
 
+| 2026-09-24 | §17 Q2 revised after S5 | **Reference only** (supersedes "lift"). AgentsCommander's PTY layer is ~51k lines coupled to Tauri and its product model, and lacks DSR and locale handling. Its Job Object pattern, resize gate and argument adapters are reimplemented, not copied. **Condition:** any AMIRI code that closely follows AC's source gets an attribution entry (MIT notice) in `THIRD_PARTY_NOTICES.md`. Its build was not run and won't be: npm lifecycle hooks execute arbitrary code. | `spikes/s5-agentscommander/FINDINGS.md` |
+| 2026-09-24 | Agent containment | **Approved:** `amirid` holds agent processes in a kill-on-close Job Object. Scope and startup reconciliation as in ARCHITECTURE §9.6. | S3 must confirm that it kills Codex's grandchildren. |
+| 2026-09-24 | Spike prerequisites | Each spike's findings record the integrity level line from `whoami /groups \| findstr S-1-16-8192` (Medium = not elevated; match the SID, since the label is localized). The env probe runs in the same non-admin window. | — |
+| 2026-09-24 | S4 SSH target | Disposable: a throwaway WSL distro with the distro's own `openssh-server` on localhost only (preferred), or a Docker image pulled **by digest** with the digest recorded. A fresh key pair generated only for S4; real keys never used. | — |
+
 ## Still open
 
-- **S5 outcome — pending reviewer agreement:** static review recommends changing Q2 from "lift" to **reference only**. The PTY layer is ~51k lines coupled to Tauri and AC's product model. Reimplement its Job Object pattern, resize gate and argument adapters instead. See `spikes/s5-agentscommander/FINDINGS.md`. The build-and-run day still needs a non-admin session.
 - Q10 `amiri-sessiond` — deferred (§17 Q10)
 
 - Q5 default `plan_approval` (recommended: ASK)
