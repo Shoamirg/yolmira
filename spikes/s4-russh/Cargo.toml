@@ -1,0 +1,16 @@
+# Spike S4 (docs/ARCHITECTURE.md §16.2): russh on Windows. Throwaway code: findings matter, not this crate.
+[package]
+name = "s4-russh"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# ring instead of the default aws-lc-rs: aws-lc-sys needs NASM to build on Windows.
+russh = { version = "0.63", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh-sftp = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "io-util", "net"] }
+serde_json = "1"
+
+# Standalone: not part of the future product workspace.
+[workspace]
