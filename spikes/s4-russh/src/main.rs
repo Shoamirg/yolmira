@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
 const HOST: &str = "127.0.0.1";
@@ -187,9 +188,10 @@ async fn check_tmux_reconnect(work: &Path) -> CheckResult {
     read_until(&mut ch, "AMIRI_42_SET").await?;
     ch.window_change(100, 30, 0, 0).await.map_err(|e| e.to_string())?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    ch.data_bytes("echo SIZE_$(tput lines)x$(tput cols)_END\r").await.map_err(|e| e.to_string())?;
-    let size_out = read_until(&mut ch, "_END\r").await?;
-    let size = size_out.rsplit("SIZE_").next().and_then(|s| s.split("_END").next()).unwrap_or("").to_string();
+    // `$((1+1))` keeps the end marker out of the echoed command line.
+    ch.data_bytes("echo SIZE_$(tput lines)x$(tput cols)_$((1+1))END\r").await.map_err(|e| e.to_string())?;
+    let size_out = read_until(&mut ch, "_2END").await?;
+    let size = size_out.rsplit("SIZE_").next().and_then(|s| s.split("_2END").next()).unwrap_or("").to_string();
 
     // Forced disconnect: drop everything without SSH_MSG_DISCONNECT (≈ network loss / amirid crash).
     drop(ch);
@@ -223,7 +225,10 @@ async fn check_sftp(work: &Path) -> CheckResult {
     let path = "/home/amiri/s4_sftp.txt";
     // Non-ASCII on purpose: ru-RU and uz-UZ are permanent test locales.
     let payload = "AMIRI S4 Привет Salom oʻzbek ✓\n".repeat(2000);
-    sftp.write(path, payload.as_bytes()).await.map_err(|e| format!("write: {e}"))?;
+    // Not `sftp.write()`: it opens with WRITE only (no CREATE) and fails on a new file.
+    let mut f = sftp.create(path).await.map_err(|e| format!("create: {e}"))?;
+    f.write_all(payload.as_bytes()).await.map_err(|e| format!("write: {e}"))?;
+    f.shutdown().await.map_err(|e| format!("close: {e}"))?;
     let back = sftp.read(path).await.map_err(|e| format!("read: {e}"))?;
     let size = sftp.metadata(path).await.map_err(|e| format!("stat: {e}"))?.size;
     sftp.remove_file(path).await.map_err(|e| format!("rm: {e}"))?;
