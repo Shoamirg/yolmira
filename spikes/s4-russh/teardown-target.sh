@@ -5,13 +5,15 @@ set -uo pipefail
 
 WORK="${1:?usage: teardown-target.sh <work-dir>}"
 DISTRO="amiri-s4-sshd"
+# Windows OpenSSH: Git Bash's own ssh-add cannot reach the Windows agent pipe.
+SSH_ADD="/c/Windows/System32/OpenSSH/ssh-add.exe"
 
 echo "== remove test key from the Windows ssh-agent"
 if [ -f "$WORK/s4_key.pub" ]; then
-  ssh-add -d "$(cygpath -w "$WORK/s4_key.pub")" 2>&1 || true
+  "$SSH_ADD" -d "$(cygpath -w "$WORK/s4_key.pub")" 2>&1 || true
 fi
 KEY_FPR=$(ssh-keygen -lf "$WORK/s4_key.pub" 2>/dev/null | awk '{print $2}')
-if [ -n "$KEY_FPR" ] && ssh-add -l 2>/dev/null | grep -q "$KEY_FPR"; then
+if [ -n "$KEY_FPR" ] && "$SSH_ADD" -l 2>/dev/null | grep -q "$KEY_FPR"; then
   echo "agent_still_has_test_key=true"
 else
   echo "agent_still_has_test_key=false"

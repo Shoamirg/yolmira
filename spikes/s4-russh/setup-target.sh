@@ -51,6 +51,7 @@ echo "== import $DISTRO"
 wsl.exe --import "$DISTRO" "$(cygpath -w "$WORK/distro")" "$(cygpath -w "$WORK/download/$IMAGE")" --version 2
 
 echo "== configure sshd (key-only, 127.0.0.1:$PORT, user amiri)"
+rm -f "$WORK/s4_key" "$WORK/s4_key.pub"
 ssh-keygen -q -t ed25519 -N "" -C amiri-s4-test -f "$WORK/s4_key"
 PUB=$(cat "$WORK/s4_key.pub")
 wsl.exe -d "$DISTRO" -u root -- sh -euc "
