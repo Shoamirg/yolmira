@@ -75,6 +75,27 @@ impl Session {
     }
 }
 
+impl Session {
+    /// Consume a run of ASCII digits once a non-digit follows it.
+    fn expect_digits(&mut self) -> Result<String, String> {
+        let deadline = Instant::now() + STEP_TIMEOUT;
+        loop {
+            let n = self.buf.bytes().take_while(u8::is_ascii_digit).count();
+            if n > 0 && n < self.buf.len() {
+                let rest = self.buf.split_off(n);
+                return Ok(std::mem::replace(&mut self.buf, rest));
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(format!("timeout waiting for digits; tail {:?}", tail(&self.buf)));
+            }
+            if let Ok(data) = self.rx.recv_timeout(left) {
+                self.buf.push_str(&String::from_utf8_lossy(&data));
+            }
+        }
+    }
+}
+
 fn spawn_reader(mut reader: Box<dyn Read + Send>, writer: SharedWriter, tx: mpsc::Sender<Vec<u8>>) {
     std::thread::spawn(move || {
         let mut chunk = [0u8; 8192];
@@ -167,7 +188,8 @@ fn check_resize() -> CheckResult {
     // Locale-neutral (`mode con` labels are localized).
     s.send(&powershell_cmd("('AMIRI_' + 'W=' + [Console]::WindowWidth)"))?;
     s.expect("AMIRI_W=")?;
-    let cols = s.expect("\n")?.trim().to_string();
+    // Digits only: ConPTY may end the line with a cursor move instead of "\n".
+    let cols = s.expect_digits()?;
     Ok(json!({ "requested_cols": RESIZED.cols, "reported_cols": cols, "ok": cols == RESIZED.cols.to_string() }))
 }
 
@@ -254,6 +276,18 @@ fn check_host_death(mode: &str) -> CheckResult {
                "alive_3s_after": alive_after_3s, "alive_10s_after": alive_after_10s }))
 }
 
+/// With `AMIRI_S1_RESTORE_CTRL_C=1`, clear an inherited "ignore Ctrl+C" flag
+/// before spawning PTYs. A parent started with CREATE_NEW_PROCESS_GROUP passes
+/// that flag down, and ConPTY children then ignore `\x03`.
+fn ctrl_c_setup() -> Value {
+    if std::env::var("AMIRI_S1_RESTORE_CTRL_C").as_deref() != Ok("1") {
+        return json!({ "restored": false });
+    }
+    // SAFETY: a null handler with FALSE only resets this process's ignore flag.
+    let ok = unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 0) } != 0;
+    json!({ "restored": true, "call_succeeded": ok })
+}
+
 /// Commit the spike ran against (§13: results from a dirty tree aren't reproducible).
 /// `findings.json` is excluded: the shell truncates it before this process starts.
 fn git_state() -> Value {
@@ -278,6 +312,7 @@ fn main() {
         }
         return;
     }
+    let ctrl_c = ctrl_c_setup();
     let checks: [(&str, fn() -> CheckResult); 8] = [
         ("echo_round_trip", check_echo),
         ("env_path", check_env_path),
@@ -304,7 +339,8 @@ fn main() {
     }
     let os = Command::new("cmd.exe").args(["/C", "ver"]).output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
-    let report = json!({ "spike": "S1-conpty", "os": os, "portable_pty": "0.9", "git": git_state(), "checks": results });
+    let report = json!({ "spike": "S1-conpty", "os": os, "portable_pty": "0.9", "git": git_state(),
+                         "ctrl_c_setup": ctrl_c, "checks": results });
     println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
     std::process::exit(if failed > 0 { 1 } else { 0 });
 }

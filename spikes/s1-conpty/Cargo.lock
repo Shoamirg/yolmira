@@ -136,6 +136,7 @@ version = "0.0.0"
 dependencies = [
  "portable-pty",
  "serde_json",
+ "windows-sys",
 ]
 
 [[package]]
