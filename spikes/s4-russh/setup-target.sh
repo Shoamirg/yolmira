@@ -55,8 +55,13 @@ ssh-keygen -q -t ed25519 -N "" -C amiri-s4-test -f "$WORK/s4_key"
 PUB=$(cat "$WORK/s4_key.pub")
 wsl.exe -d "$DISTRO" -u root -- sh -euc "
   export DEBIAN_FRONTEND=noninteractive
+  # No service starts during install (systemd is not ready on first boot); sshd is
+  # started by hand with our config, and systemd's ssh units are masked.
+  printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+  chmod 755 /usr/sbin/policy-rc.d
   apt-get -qq update
-  apt-get -qq install -y openssh-server tmux >/dev/null
+  apt-get -qq install -y openssh-server tmux >/dev/null || dpkg --configure -a
+  systemctl mask --now ssh.socket ssh.service >/dev/null 2>&1 || true
   id amiri >/dev/null 2>&1 || useradd -m -s /bin/bash amiri
   install -d -m 700 -o amiri -g amiri /home/amiri/.ssh
   printf '%s\n' '$PUB' > /home/amiri/.ssh/authorized_keys
@@ -71,6 +76,7 @@ PubkeyAuthentication yes
 PermitRootLogin no
 AllowUsers amiri
 EOF
+  ssh-keygen -A >/dev/null
   mkdir -p /run/sshd
   sshd -t
 "
