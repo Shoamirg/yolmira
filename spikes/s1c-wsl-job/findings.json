@@ -1,0 +1,44 @@
+{
+  "distro": "Ubuntu-22.04",
+  "elevated": false,
+  "git": {
+    "commit": "5074fec11532bfef02e713393b958220c2f7616b",
+    "dirty_tracked_files": false
+  },
+  "ok": true,
+  "result": {
+    "fg_wsl_exe_alive_3s_after": false,
+    "fg_wsl_exe_alive_before_kill": true,
+    "host_report": [
+      "FG_WSL_PID 3648",
+      "TMUX_START_EXIT 0",
+      "HOST_IN_JOB Some(true)"
+    ],
+    "linux_10s_after_kill": {
+      "fg_sleep": false,
+      "tmux_child": true,
+      "tmux_session": true
+    },
+    "linux_3s_after_kill": {
+      "fg_sleep": false,
+      "tmux_child": true,
+      "tmux_session": true
+    },
+    "linux_after_cleanup": {
+      "fg_sleep": false,
+      "tmux_child": false,
+      "tmux_session": false
+    },
+    "linux_before_kill": {
+      "fg_sleep": true,
+      "tmux_child": true,
+      "tmux_session": true
+    },
+    "linux_before_start": {
+      "fg_sleep": false,
+      "tmux_child": false,
+      "tmux_session": false
+    }
+  },
+  "spike": "S1c-wsl-job"
+}
