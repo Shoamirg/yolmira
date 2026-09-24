@@ -81,7 +81,7 @@ EOF
   mkdir -p /run/sshd
   sshd -t
 "
-HOSTKEY=$(wsl.exe -d "$DISTRO" -u root -- cat /etc/ssh/ssh_host_ed25519_key.pub | tr -d '\r')
+HOSTKEY=$(MSYS_NO_PATHCONV=1 wsl.exe -d "$DISTRO" -u root -- cat /etc/ssh/ssh_host_ed25519_key.pub | tr -d '\r')
 printf '[127.0.0.1]:%s %s\n' "$PORT" "$(echo "$HOSTKEY" | awk '{print $1, $2}')" > "$WORK/known_hosts"
 
 FPR=$("$GPG" --batch --with-colons --fingerprint "$SIGNING_KEY" | awk -F: '/^fpr/{print $10; exit}')
