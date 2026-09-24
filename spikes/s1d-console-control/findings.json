@@ -1,0 +1,48 @@
+{
+  "git": {
+    "commit": "b42c776d0fb1feea7216a1d07da26864b5bc0a81",
+    "dirty_tracked_files": false
+  },
+  "launcher_ignore_flag_simulated": true,
+  "modes": {
+    "fixed": {
+      "events": [
+        "HOST_START fixed",
+        "INNER_CTRL_C ok",
+        "READY",
+        "HOST_IGNORED_CTRL 0",
+        "HOST_CLEAN_SHUTDOWN 2"
+      ],
+      "host_clean_shutdown_on_close": true,
+      "host_exit_code_after_close": 0,
+      "host_ready": true,
+      "host_survived_own_ctrl_c": true,
+      "inner_shell_interrupted_by_ctrl_c": true
+    },
+    "none": {
+      "events": [
+        "HOST_START none",
+        "INNER_CTRL_C fail timeout waiting for \"AMIRI_Windows_NT\"",
+        "READY"
+      ],
+      "host_clean_shutdown_on_close": false,
+      "host_exit_code_after_close": 3221225786,
+      "host_ready": true,
+      "host_survived_own_ctrl_c": true,
+      "inner_shell_interrupted_by_ctrl_c": false
+    },
+    "restore-only": {
+      "events": [
+        "HOST_START restore-only",
+        "INNER_CTRL_C ok",
+        "READY"
+      ],
+      "host_clean_shutdown_on_close": false,
+      "host_exit_code_after_close": 3221225786,
+      "host_ready": true,
+      "host_survived_own_ctrl_c": false,
+      "inner_shell_interrupted_by_ctrl_c": true
+    }
+  },
+  "spike": "S1d-console-control"
+}
