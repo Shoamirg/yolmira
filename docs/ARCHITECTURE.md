@@ -272,6 +272,8 @@ Named pipe ACL: current user SID only. Each client authenticates with a per-boot
 
 **Elevation** `[DECISION, from S1 review]`: `amirid` **refuses to start in an elevated (Administrator) token** unless launched with an explicit override flag (`--allow-elevated`), which is logged as an event and shown as a persistent banner in the UI. Reason: every agent, shell and git command inherits the daemon's token, so an elevated daemon silently removes the UAC boundary from all agent actions. `amiri doctor` reports elevation either way.
 
+**UAC disabled** `[DECISION, from the non-admin rerun]`: `amiri doctor` also reads `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA`. `0` means UAC is off: an administrator account then gets its full token in every process, so there is no non-elevated session to run in and the elevation refusal above fires on every start. Doctor reports it as a failure with the fix (set `EnableLUA=1` and reboot) instead of just "elevated". The dev machine had UAC off, which is why S1 and S1b first ran elevated.
+
 ---
 
 ## 7. Data model
