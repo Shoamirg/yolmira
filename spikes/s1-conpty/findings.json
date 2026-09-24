@@ -1,0 +1,82 @@
+﻿{
+  "checks": {
+    "ansi_passthrough": {
+      "ms": 4748,
+      "observed": {
+        "any_escape_seen": true,
+        "raw_tail": "]0;Администратор: C:\\Windows\\System32\\cmd.exe - \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"  -NoProfile -Command \"Write-Host -ForegroundColor Red ('AMIRI_' + 'RED')\"\u0007\u001b[38;5;9mAMIRI_RED",
+        "red_sgr_seen": true
+      },
+      "ok": true
+    },
+    "ctrl_c_interrupt": {
+      "ms": 2725,
+      "observed": {
+        "interrupted_and_prompt_returned": true
+      },
+      "ok": true
+    },
+    "echo_round_trip": {
+      "ms": 133,
+      "observed": {
+        "round_trip_ms": 23
+      },
+      "ok": true
+    },
+    "env_path": {
+      "ms": 223,
+      "observed": {
+        "child_entries": 65,
+        "child_has_unexpanded_vars": false,
+        "child_has_windows_powershell": false,
+        "identical": true,
+        "parent_entries": 65
+      },
+      "ok": true
+    },
+    "exit_code": {
+      "ms": 193,
+      "observed": {
+        "expected": 7,
+        "observed": 7
+      },
+      "ok": true
+    },
+    "host_closes_pseudoconsole": {
+      "ms": 13678,
+      "observed": {
+        "alive_10s_after": false,
+        "alive_3s_after": false,
+        "alive_before": false,
+        "child_pid": 56688
+      },
+      "ok": true
+    },
+    "host_killed": {
+      "ms": 12855,
+      "observed": {
+        "alive_10s_after": false,
+        "alive_3s_after": false,
+        "alive_before": true,
+        "child_pid": 57456
+      },
+      "ok": true
+    },
+    "resize": {
+      "ms": 5036,
+      "observed": {
+        "ok": true,
+        "reported_cols": "120",
+        "requested_cols": 120
+      },
+      "ok": true
+    }
+  },
+  "git": {
+    "commit": "3684aebf1de32dc8ac234bff56b453886dc019f1",
+    "dirty_tracked_files": false
+  },
+  "os": "Microsoft Windows [Version 10.0.26200.9457]",
+  "portable_pty": "0.9",
+  "spike": "S1-conpty"
+}

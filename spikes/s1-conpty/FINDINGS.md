@@ -3,7 +3,8 @@
 - Date: 2026-09-24
 - Machine: Windows 10.0.26200.9457 (Windows 11), ru-RU locale (OEM code page 866), process elevated (Administrator)
 - Crate: `portable-pty` 0.9.0
-- Raw evidence: `findings.json` (produced by `cargo run --release`; exit 0, 8/8 checks)
+- Raw evidence: `findings.json`: rerun on clean commit `3684aeb` (no tracked changes), exit 0, 8/8 checks. The first runs were on an uncommitted tree and are superseded.
+- Caveat: all runs so far were **elevated**. Rerun from a non-admin session to confirm nothing depends on it.
 
 ## Observations
 
