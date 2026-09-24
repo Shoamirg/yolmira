@@ -8,7 +8,7 @@ Limits (docs/decisions.md): cheap model, low --max-turns, --max-budget-usd per p
 scratch cwd outside the repo, minimal tools, --safe-mode (no user hooks/plugins/MCP),
 allowlisted environment, non-admin session. Aborts once total cost passes TOTAL_BUDGET_USD.
 
-Usage: python s2.py <scratch-dir> > findings.json
+Usage: python s2.py <scratch-dir> [scenario ...] > findings.json  (no scenarios = all)
 """
 import json
 import os
@@ -365,6 +365,32 @@ def s6_stdin_close_mid_turn(run):
             "descendants_alive_3s_after": alive_3s, "descendants_alive_10s_after": alive_10s}
 
 
+def s7_stdin_close_then_natural_end(run):
+    """Like s6, but nothing is killed: does claude exit once the running turn ends?"""
+    c = run.start("s7_stdin_close_natural", ["--tools", "Bash", "--allowedTools", "Bash(ping *)",
+                                             "--max-turns", "2"])
+    c.user("Use the Bash tool to run exactly this command and wait for it: ping -n 8 127.0.0.1 "
+           "Then reply DONE.")
+    tool = c.wait_for(lambda e: e.get("type") == "assistant" and any(
+        b.get("type") == "tool_use" for b in e.get("message", {}).get("content", [])), 90)
+    time.sleep(2)
+    tree = descendants(c.proc.pid, process_table())
+    closed = time.monotonic()
+    c.close_stdin()
+    r = run.account(c.result(90))
+    code = c.wait_exit(60)
+    exit_ms = int((time.monotonic() - closed) * 1000) if code is not None else None
+    t = process_table()
+    left = {str(p): n for p, n in tree.items() if p in t and t[p][1] == n}
+    for pid in tree:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    c.stop()
+    run.save(c)
+    return {"tool_use_seen": tool is not None, "descendants_before_close": {str(p): n for p, n in tree.items()},
+            "result_after_close": summarize(r), "claude_exit_code": code, "claude_exit_ms_after_close": exit_ms,
+            "descendants_left_after_exit": left}
+
+
 def git_state():
     def git(*args):
         r = subprocess.run(["git", "-C", str(HERE), *args], capture_output=True, text=True)
@@ -380,13 +406,15 @@ def main():
     version = subprocess.run([CLAUDE, "--version"], capture_output=True, text=True, env=allowlist_env())
     report = {"spike": "S2-claude-stream", "git": git_state(), "claude_version": version.stdout.strip(),
               "model_alias": MODEL, "per_process_budget_usd": PER_PROCESS_BUDGET, "scenarios": {}}
+    only = set(sys.argv[2:])
     steps = [("s1_multiturn_and_idle_close", lambda: s1_multiturn_and_idle_close(run, sid)),
              ("s2_resume", lambda: s2_resume(run, sid)),
              ("s3_permission_stdio", lambda: s3_permission_stdio(run)),
              ("s4_permission_mcp_safe", lambda: s4_permission_mcp(run, True)),
              ("s5_interrupt", lambda: s5_interrupt(run)),
-             ("s6_stdin_close_mid_turn", lambda: s6_stdin_close_mid_turn(run))]
-    for name, step in steps:
+             ("s6_stdin_close_mid_turn", lambda: s6_stdin_close_mid_turn(run)),
+             ("s7_stdin_close_then_natural_end", lambda: s7_stdin_close_then_natural_end(run))]
+    for name, step in [s for s in steps if not only or s[0] in only]:
         try:
             report["scenarios"][name] = step()
         except BudgetExceeded as e:
