@@ -1,0 +1,225 @@
+{
+  "spike": "S2-claude-stream",
+  "git": {
+    "commit": "7d358e3cd9a93fb7b26f5cb16e5ff4f7cad6eb8e",
+    "dirty_tracked_files": false
+  },
+  "claude_version": "2.1.281 (Claude Code)",
+  "model_alias": "haiku",
+  "per_process_budget_usd": "0.15",
+  "scenarios": {
+    "s1_multiturn_and_idle_close": {
+      "init_seen_before_first_user_message": false,
+      "init_keys": null,
+      "init_session_id_matches": false,
+      "turn1": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 1,
+        "session_id": "afb63de2-4313-4dfe-9abc-47ffec12c51d",
+        "total_cost_usd": 0.004353,
+        "stop_reason": "end_turn",
+        "result": "AMIRI_S2_ONE",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      },
+      "turn2": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 1,
+        "session_id": "afb63de2-4313-4dfe-9abc-47ffec12c51d",
+        "total_cost_usd": 0.008551,
+        "stop_reason": "end_turn",
+        "result": "AMIRI_S2_TWO",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      },
+      "idle_stdin_close_exit_code": 0,
+      "idle_stdin_close_exit_ms": 594
+    },
+    "s2_resume": {
+      "result": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 1,
+        "session_id": "afb63de2-4313-4dfe-9abc-47ffec12c51d",
+        "total_cost_usd": 0.01718,
+        "stop_reason": "end_turn",
+        "result": "AMIRI_S2_ONE",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      },
+      "remembers_first_turn": true,
+      "same_session_id": true,
+      "exit_code": 0
+    },
+    "s3_permission_stdio": {
+      "initialize_request_id": "amiri_1",
+      "initialize_response_subtype": "success",
+      "permission_requests": [
+        {
+          "tool_name": "Write",
+          "input": {
+            "file_path": "<SCRATCH>\\work\\s3_permission_stdio\\s2_allowed.txt",
+            "content": "AMIRI_S2_FILE"
+          },
+          "tool_use_id": "toolu_01LhRhDsLhVNMGmMhetuneMh",
+          "permission_suggestions": [
+            {
+              "type": "setMode",
+              "mode": "acceptEdits",
+              "destination": "session"
+            }
+          ]
+        },
+        {
+          "tool_name": "Write",
+          "input": {
+            "file_path": "<SCRATCH>\\work\\s3_permission_stdio\\s2_denied.txt",
+            "content": "AMIRI_S2_NO"
+          },
+          "tool_use_id": "toolu_01Tx5Z46a2j5BVozY8Q9zpgD",
+          "permission_suggestions": [
+            {
+              "type": "setMode",
+              "mode": "acceptEdits",
+              "destination": "session"
+            }
+          ]
+        }
+      ],
+      "allowed_file_written": true,
+      "denied_file_absent": true,
+      "turn_allow": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 2,
+        "session_id": "b4c78796-9654-43fa-b5f0-b641be5b695e",
+        "total_cost_usd": 0.0115757,
+        "stop_reason": "end_turn",
+        "result": "DONE",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      },
+      "turn_deny": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 2,
+        "session_id": "b4c78796-9654-43fa-b5f0-b641be5b695e",
+        "total_cost_usd": 0.014940899999999998,
+        "stop_reason": "end_turn",
+        "result": "DENIED",
+        "permission_denials": [
+          {
+            "tool_name": "Write",
+            "tool_use_id": "toolu_01Tx5Z46a2j5BVozY8Q9zpgD",
+            "tool_input": {
+              "file_path": "<SCRATCH>\\work\\s3_permission_stdio\\s2_denied.txt",
+              "content": "AMIRI_S2_NO"
+            }
+          }
+        ],
+        "terminal_reason": "completed"
+      }
+    },
+    "s4_permission_mcp_safe": {
+      "safe_mode": true,
+      "approve_tool_calls": [],
+      "file_written": false,
+      "result": null
+    },
+    "s4_permission_mcp_nosafe": {
+      "safe_mode": false,
+      "approve_tool_calls": [
+        {
+          "name": "approve",
+          "arguments": {
+            "tool_name": "Write",
+            "input": {
+              "file_path": "<SCRATCH>\\work\\s4_permission_mcp_nosafe\\s2_mcp.txt",
+              "content": "AMIRI_S2_MCP"
+            },
+            "tool_use_id": "toolu_01AoEkoezjrfLjXWcgE2PwtA"
+          },
+          "_meta": {
+            "claudecode/toolUseId": "toolu_01AoEkoezjrfLjXWcgE2PwtA",
+            "progressToken": 2
+          }
+        }
+      ],
+      "file_written": true,
+      "result": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 2,
+        "session_id": "f41fb0e0-4776-4ca0-bb60-fcdefa402681",
+        "total_cost_usd": 0.0184694,
+        "stop_reason": "end_turn",
+        "result": "DONE",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      }
+    },
+    "s5_interrupt": {
+      "saw_partial_before_interrupt": true,
+      "interrupt_request_id": "amiri_1",
+      "interrupt_ack": {
+        "subtype": "success",
+        "request_id": "amiri_1",
+        "response": {
+          "still_queued": []
+        }
+      },
+      "interrupted_turn": {
+        "subtype": "error_during_execution",
+        "is_error": true,
+        "num_turns": 2,
+        "session_id": "c8bbbd93-06cd-443f-8b90-2d31d50e8f64",
+        "total_cost_usd": 0,
+        "stop_reason": null,
+        "permission_denials": [],
+        "terminal_reason": "aborted_streaming"
+      },
+      "next_turn": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 1,
+        "session_id": "c8bbbd93-06cd-443f-8b90-2d31d50e8f64",
+        "total_cost_usd": 0.0047940000000000005,
+        "stop_reason": "end_turn",
+        "result": "AMIRI_S2_AFTER",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      },
+      "session_usable_after_interrupt": true
+    },
+    "s6_stdin_close_mid_turn": {
+      "tool_use_seen": true,
+      "descendants_before_close": {
+        "35892": "bash.exe",
+        "15740": "bash.exe",
+        "13408": "conhost.exe",
+        "12484": "bash.exe",
+        "18628": "PING.EXE"
+      },
+      "claude_exit_code_after_close": null,
+      "claude_exit_ms_after_close": null,
+      "claude_alive_10s_after_close": true,
+      "descendants_alive_3s_after": {
+        "35892": "bash.exe",
+        "15740": "bash.exe",
+        "13408": "conhost.exe",
+        "12484": "bash.exe",
+        "18628": "PING.EXE"
+      },
+      "descendants_alive_10s_after": {
+        "35892": "bash.exe",
+        "15740": "bash.exe",
+        "13408": "conhost.exe",
+        "12484": "bash.exe",
+        "18628": "PING.EXE"
+      }
+    }
+  },
+  "total_cost_usd": 0.0799
+}

@@ -1,0 +1,37 @@
+{
+  "spike": "S2-claude-stream",
+  "git": {
+    "commit": "6e63f7bdb08d3a4a841451b6502b1efc6cf2b67b",
+    "dirty_tracked_files": false
+  },
+  "claude_version": "2.1.281 (Claude Code)",
+  "model_alias": "haiku",
+  "per_process_budget_usd": "0.15",
+  "scenarios": {
+    "s7_stdin_close_then_natural_end": {
+      "tool_use_seen": true,
+      "descendants_before_close": {
+        "17176": "bash.exe",
+        "15428": "bash.exe",
+        "26584": "conhost.exe",
+        "31576": "bash.exe",
+        "15024": "PING.EXE"
+      },
+      "result_after_close": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 2,
+        "session_id": "fc3cbca8-ed0f-4761-9a6b-02f485b0f83e",
+        "total_cost_usd": 0.0087221,
+        "stop_reason": "end_turn",
+        "result": "DONE",
+        "permission_denials": [],
+        "terminal_reason": "completed"
+      },
+      "claude_exit_code": 0,
+      "claude_exit_ms_after_close": 7750,
+      "descendants_left_after_exit": {}
+    }
+  },
+  "total_cost_usd": 0.0087
+}
