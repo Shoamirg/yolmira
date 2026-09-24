@@ -452,17 +452,17 @@ Every raw provider line is also captured to `artifacts/<task>/<session>.jsonl` b
 - Reported behavior to verify: signaling the server may leave its child commands running, while closing stdin shuts it down cleanly `[README, UNVERIFIED]`. `terminate()` therefore closes stdin first, then kills the process tree by job object on Windows.
 - Uses the user's existing Codex login. An OpenAI-API-direct adapter (Responses API) is a separate future provider, not a Codex mode.
 
-### 9.6 Agent process containment `[DECISION, from S1b + review]`
-- **Kill-on-close Job Object.** Every agent process `amirid` spawns (`claude -p`, `codex app-server`, fake CLIs in tests) is created suspended, assigned to a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` held through a non-inheritable handle, then resumed. When `amirid` exits or crashes, the kernel kills the whole tree, grandchildren included. This covers the reported Codex behaviour of child commands outliving signals, and the S1b orphan that survived ≥10.8 s after its host died. S3 must confirm it against the real CLI. `terminate()` (§9.3) uses the same job.
-- **Scope: agent processes only.** Outside the job: WSL/tmux sessions (killing a `wsl.exe` client must not take down the tmux server inside WSL; to be checked with the S1b harness), ConPTY shells if `amiri-sessiond` is ever built (§17 Q10), and the UI.
-- **Startup reconciliation for pre-job crashes.** `amirid` records each spawned PID with its process start time (Windows reuses PIDs). On startup it compares the records with running processes. Matches (same PID *and* start time) are marked `ORPHANED` and offered for cleanup in the UI and `amiri doctor`. They are **never killed silently**.
-- Pattern reference: AgentsCommander `pty/job.rs` (reimplemented, not copied; see `docs/decisions.md`).
-
 ### 9.4 Adding a provider
 Implement `Agent`, declare capabilities, add recorded fixtures, and add a contract test (§15). The orchestrator reads capabilities and never branches on provider names. A provider without `permission_callbacks` can only be assigned to tasks whose policy needs no ASK decisions, or it runs in a restricted execution target.
 
 ### 9.5 Roles
 Roles (`planner`, `implementer`, `reviewer`, `debugger`, `researcher`, `tester`, `benchmarker`, `documenter`) are data in `agents.yaml` and the project profile: role → agent + role prompt + tool grants. Defaults follow the spec's example (Claude implements, GPT plans/reviews), but nothing in code assumes it.
+
+### 9.6 Agent process containment `[DECISION, from S1b + review]`
+- **Kill-on-close Job Object.** Every agent process `amirid` spawns (`claude -p`, `codex app-server`, fake CLIs in tests) is created suspended, assigned to a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` held through a non-inheritable handle, then resumed. When `amirid` exits or crashes, the kernel kills the whole tree, grandchildren included. This covers the reported Codex behaviour of child commands outliving signals, and the S1b orphan that survived ≥10.8 s after its host died. S3 must confirm it against the real CLI. `terminate()` (§9.3) uses the same job.
+- **Scope: agent processes only.** Outside the job: WSL/tmux sessions (killing a `wsl.exe` client must not take down the tmux server inside WSL; to be checked with the S1b harness), ConPTY shells if `amiri-sessiond` is ever built (§17 Q10), and the UI.
+- **Startup reconciliation for pre-job crashes.** `amirid` records each spawned PID with its process start time (Windows reuses PIDs). On startup it compares the records with running processes. Matches (same PID *and* start time) are marked `ORPHANED` and offered for cleanup in the UI and `amiri doctor`. They are **never killed silently**.
+- Pattern reference: AgentsCommander `pty/job.rs` (reimplemented, not copied; see `docs/decisions.md`).
 
 ---
 
