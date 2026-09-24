@@ -9,6 +9,7 @@ scratch cwd outside the repo, minimal tools, --safe-mode (no user hooks/plugins/
 allowlisted environment, non-admin session. Aborts once total cost passes TOTAL_BUDGET_USD.
 
 Usage: python s2.py <scratch-dir> [scenario ...] > findings.json  (no scenarios = all)
+       python s2.py --resanitize <scratch-dir> ...
 """
 import json
 import os
@@ -192,7 +193,9 @@ class Run:
     def sanitize(self, text):
         for needle, label in ((str(self.scratch), "<SCRATCH>"), (self.home, "<HOME>")):
             if needle:
-                for form in (needle, needle.replace("\\", "\\\\"), needle.replace("\\", "/")):
+                # Fixture lines are JSON inside JSON, so backslashes appear 1x, 2x or 4x.
+                forms = [needle.replace("\\", "\\" * n) for n in (4, 2, 1)] + [needle.replace("\\", "/")]
+                for form in forms:
                     text = text.replace(form, label)
         for secret in filter(None, [os.environ.get("USERNAME"), os.environ.get("COMPUTERNAME")]):
             if len(secret) > 4:
@@ -400,7 +403,19 @@ def git_state():
     return {"commit": git("rev-parse", "HEAD"), "dirty_tracked_files": None if dirty is None else bool(dirty)}
 
 
+def resanitize(scratch):
+    """Rewrite ./fixtures from a run's raw copies with the current sanitizer (no API calls)."""
+    run = Run(scratch)
+    for raw in sorted((Path(scratch) / "raw").glob("*.jsonl")):
+        if not raw.name.endswith(".stderr.jsonl"):
+            (FIXTURES / raw.name).write_text(run.sanitize(raw.read_text(encoding="utf-8")), encoding="utf-8")
+
+
 def main():
+    if sys.argv[1] == "--resanitize":
+        for scratch in sys.argv[2:]:
+            resanitize(scratch)
+        return
     run = Run(sys.argv[1])
     sid = str(uuid.uuid4())
     version = subprocess.run([CLAUDE, "--version"], capture_output=True, text=True, env=allowlist_env())
