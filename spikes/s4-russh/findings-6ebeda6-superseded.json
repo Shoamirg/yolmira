@@ -1,0 +1,94 @@
+{
+  "checks": {
+    "auth_key_file": {
+      "ms": 158,
+      "observed": {
+        "success": true,
+        "whoami": "amiri"
+      },
+      "ok": true
+    },
+    "auth_windows_agent_pipe": {
+      "ms": 429,
+      "observed": {
+        "pipe": "\\\\.\\pipe\\openssh-ssh-agent",
+        "success": true,
+        "whoami": "amiri"
+      },
+      "ok": true
+    },
+    "exec_exit_code": {
+      "ms": 152,
+      "observed": {
+        "expected": 7,
+        "observed": 7
+      },
+      "ok": true
+    },
+    "hostkey_mismatch_hard_fail": {
+      "ms": 9,
+      "observed": {
+        "error": "connect: The server key changed at line 1",
+        "rejected": true
+      },
+      "ok": true
+    },
+    "hostkey_pinned": {
+      "ms": 12,
+      "observed": {
+        "accepted": true
+      },
+      "ok": true
+    },
+    "password_refused": {
+      "ms": 78,
+      "observed": {
+        "refused": true,
+        "remaining_methods": "MethodSet([PublicKey])"
+      },
+      "ok": true
+    },
+    "pty_tmux_resize_reconnect": {
+      "ms": 3110,
+      "observed": {
+        "expected_size": "30x100",
+        "reconnect_and_reattach_ms": 192,
+        "reconnect_ms": 72,
+        "shell_state_after_reattach": true,
+        "size_after_resize": "29x100",
+        "tmux_alive_after_forced_disconnect": true
+      },
+      "ok": true
+    },
+    "sftp_round_trip": {
+      "ms": 210,
+      "observed": {
+        "bytes": 80000,
+        "round_trip_identical": true,
+        "stat_size": 80000
+      },
+      "ok": true
+    }
+  },
+  "git": {
+    "commit": "6ebeda6b1f99e97eae5ccca52cd3a40735c188ce",
+    "dirty_tracked_files": false
+  },
+  "russh": "0.63",
+  "russh_sftp": "3.0",
+  "spike": "S4-russh",
+  "target": {
+    "distro": "amiri-s4-sshd",
+    "host_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPp4EF6x1JLY2VcgvD1QHqr4ahQmDaklOU9siR2je3Ez",
+    "image_sha256": "2a790896740b14d637dbdc583cce1ba081ac53b9e9cdb46dc09a2f73abbd9934",
+    "image_url": "https://cloud-images.ubuntu.com/wsl/releases/24.04/current/ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz",
+    "sha256_matches_published": true,
+    "sha256sums_url": "https://cloud-images.ubuntu.com/wsl/releases/24.04/current/SHA256SUMS",
+    "signature_valid": true,
+    "signing_key_fingerprint": "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",
+    "signing_key_uid": "UEC Image Automatic Signing Key <cdimage@ubuntu.com>",
+    "sshd_listen": "127.0.0.1",
+    "sshd_port": 22422,
+    "test_key_fingerprint": "SHA256:IqwwxyM/AtDgVi78EtGr2/6dwFADbwuLYUvbZNG7gGQ"
+  }
+}
