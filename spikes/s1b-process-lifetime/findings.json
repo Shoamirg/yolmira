@@ -1,7 +1,7 @@
 {
-  "elevated": true,
+  "elevated": false,
   "git": {
-    "commit": "8e98c8b41eb48d5fc910909bceb5d1856d69fe90",
+    "commit": "b35872f42e7394324dba745538adab30208267b4",
     "dirty_tracked_files": false
   },
   "parent_in_job": false,
@@ -11,12 +11,12 @@
       "alive_3s_after": false,
       "alive_before_kill": true,
       "child_events_ms_from_kill": [
-        "-2175 START pid=24568",
-        "+31 STDIN_EOF",
-        "+32 EXIT_ON_EOF",
-        "-172 LAST_ALIVE"
+        "-1950 START pid=14640",
+        "+1 STDIN_EOF",
+        "+1 EXIT_ON_EOF",
+        "-948 LAST_ALIVE"
       ],
-      "child_pid": 24568,
+      "child_pid": 14640,
       "child_policy": "eof-exit",
       "jobs": "JOB child=Some(false) host=Some(false)",
       "transport": "pipe"
@@ -26,12 +26,12 @@
       "alive_3s_after": true,
       "alive_before_kill": true,
       "child_events_ms_from_kill": [
-        "-2186 START pid=32096",
-        "+34 STDIN_EOF",
-        "+69 STDOUT_ERR Идет закрытие канала. (os error 232)",
-        "+10843 LAST_ALIVE"
+        "-1964 START pid=32912",
+        "+2 STDIN_EOF",
+        "+40 STDOUT_ERR Идет закрытие канала. (os error 232)",
+        "+10060 LAST_ALIVE"
       ],
-      "child_pid": 32096,
+      "child_pid": 32912,
       "child_policy": "eof-ignore",
       "jobs": "JOB child=Some(false) host=Some(false)",
       "transport": "pipe"
@@ -41,11 +41,11 @@
       "alive_3s_after": false,
       "alive_before_kill": true,
       "child_events_ms_from_kill": [
-        "-2276 START pid=53192",
-        "+30 CTRL_EVENT 2",
-        "-251 LAST_ALIVE"
+        "-1952 START pid=8656",
+        "+1 CTRL_EVENT 2",
+        "-949 LAST_ALIVE"
       ],
-      "child_pid": 53192,
+      "child_pid": 8656,
       "child_policy": "eof-ignore",
       "jobs": "JOB child=Some(false) host=Some(false)",
       "transport": "pty"

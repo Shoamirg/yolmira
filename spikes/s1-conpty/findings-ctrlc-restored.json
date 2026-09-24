@@ -1,0 +1,86 @@
+{
+  "checks": {
+    "ansi_passthrough": {
+      "ms": 4782,
+      "observed": {
+        "any_escape_seen": true,
+        "raw_tail": "_' + 'RED')\"\r\n\u001b]0;C:\\Windows\\System32\\cmd.exe - \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"  -NoProfile -Command \"Write-Host -ForegroundColor Red ('AMIRI_' + 'RED')\"\u0007\u001b[38;5;9mAMIRI_RED",
+        "red_sgr_seen": true
+      },
+      "ok": true
+    },
+    "ctrl_c_interrupt": {
+      "ms": 2534,
+      "observed": {
+        "interrupted_and_prompt_returned": true
+      },
+      "ok": true
+    },
+    "echo_round_trip": {
+      "ms": 97,
+      "observed": {
+        "round_trip_ms": 23
+      },
+      "ok": true
+    },
+    "env_path": {
+      "ms": 66,
+      "observed": {
+        "child_entries": 65,
+        "child_has_unexpanded_vars": false,
+        "child_has_windows_powershell": false,
+        "identical": false,
+        "parent_entries": 75
+      },
+      "ok": true
+    },
+    "exit_code": {
+      "ms": 42,
+      "observed": {
+        "expected": 7,
+        "observed": 7
+      },
+      "ok": true
+    },
+    "host_closes_pseudoconsole": {
+      "ms": 12774,
+      "observed": {
+        "alive_10s_after": false,
+        "alive_3s_after": false,
+        "alive_before": false,
+        "child_pid": 31484
+      },
+      "ok": true
+    },
+    "host_killed": {
+      "ms": 11750,
+      "observed": {
+        "alive_10s_after": false,
+        "alive_3s_after": false,
+        "alive_before": true,
+        "child_pid": 6540
+      },
+      "ok": true
+    },
+    "resize": {
+      "ms": 4984,
+      "observed": {
+        "ok": true,
+        "reported_cols": "120",
+        "requested_cols": 120
+      },
+      "ok": true
+    }
+  },
+  "ctrl_c_setup": {
+    "call_succeeded": true,
+    "restored": true
+  },
+  "git": {
+    "commit": "0195d6b1ad6b6e55bc0b2357a386486067f1a889",
+    "dirty_tracked_files": false
+  },
+  "os": "Microsoft Windows [Version 10.0.26200.9457]",
+  "portable_pty": "0.9",
+  "spike": "S1-conpty"
+}

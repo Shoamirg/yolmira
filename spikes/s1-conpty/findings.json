@@ -1,41 +1,39 @@
-﻿{
+{
   "checks": {
     "ansi_passthrough": {
-      "ms": 4748,
+      "ms": 4709,
       "observed": {
         "any_escape_seen": true,
-        "raw_tail": "]0;Администратор: C:\\Windows\\System32\\cmd.exe - \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"  -NoProfile -Command \"Write-Host -ForegroundColor Red ('AMIRI_' + 'RED')\"\u0007\u001b[38;5;9mAMIRI_RED",
+        "raw_tail": "_' + 'RED')\"\r\n\u001b]0;C:\\Windows\\System32\\cmd.exe - \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"  -NoProfile -Command \"Write-Host -ForegroundColor Red ('AMIRI_' + 'RED')\"\u0007\u001b[38;5;9mAMIRI_RED",
         "red_sgr_seen": true
       },
       "ok": true
     },
     "ctrl_c_interrupt": {
-      "ms": 2725,
-      "observed": {
-        "interrupted_and_prompt_returned": true
-      },
-      "ok": true
+      "error": "shell did not return after Ctrl+C: timeout waiting for \"AMIRI_Windows_NT\"; tail \".0.0.1: число байт=32 время<1мс TTL=128\\r\\nОтвет от 127.0.0.1: число байт=32 время<1мс TTL=128\\r\\nОтвет от 127.0.0.1: число байт=32 время<1мс TTL=128\\r\\nОтвет от 127.0.0.1: число байт=32 время<1мс TTL=128\\r\\n\"",
+      "ms": 22524,
+      "ok": false
     },
     "echo_round_trip": {
-      "ms": 133,
+      "ms": 920,
       "observed": {
-        "round_trip_ms": 23
+        "round_trip_ms": 29
       },
       "ok": true
     },
     "env_path": {
-      "ms": 223,
+      "ms": 48,
       "observed": {
         "child_entries": 65,
         "child_has_unexpanded_vars": false,
         "child_has_windows_powershell": false,
-        "identical": true,
-        "parent_entries": 65
+        "identical": false,
+        "parent_entries": 75
       },
       "ok": true
     },
     "exit_code": {
-      "ms": 193,
+      "ms": 69,
       "observed": {
         "expected": 7,
         "observed": 7
@@ -43,27 +41,27 @@
       "ok": true
     },
     "host_closes_pseudoconsole": {
-      "ms": 13678,
+      "ms": 12870,
       "observed": {
         "alive_10s_after": false,
         "alive_3s_after": false,
         "alive_before": false,
-        "child_pid": 56688
+        "child_pid": 3104
       },
       "ok": true
     },
     "host_killed": {
-      "ms": 12855,
+      "ms": 11875,
       "observed": {
         "alive_10s_after": false,
         "alive_3s_after": false,
         "alive_before": true,
-        "child_pid": 57456
+        "child_pid": 33352
       },
       "ok": true
     },
     "resize": {
-      "ms": 5036,
+      "ms": 4949,
       "observed": {
         "ok": true,
         "reported_cols": "120",
@@ -72,8 +70,11 @@
       "ok": true
     }
   },
+  "ctrl_c_setup": {
+    "restored": false
+  },
   "git": {
-    "commit": "3684aebf1de32dc8ac234bff56b453886dc019f1",
+    "commit": "0195d6b1ad6b6e55bc0b2357a386486067f1a889",
     "dirty_tracked_files": false
   },
   "os": "Microsoft Windows [Version 10.0.26200.9457]",
