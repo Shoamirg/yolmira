@@ -6,6 +6,10 @@
 //!
 //! Usage: `cargo run --release -- <work-dir>` (work-dir from setup-target.sh; the
 //! test key must already be in the Windows agent for the agent check).
+//! Before running, from Git Bash:
+//!   MSYS_NO_PATHCONV=1 wsl.exe -d amiri-s4-sshd -u root -- /usr/sbin/sshd -D -e &
+//!   /c/Windows/System32/OpenSSH/ssh-add.exe "$(cygpath -w <work-dir>/s4_key)"
+//! Every check fails unless its expected value is observed (not just recorded).
 //! Throwaway code.
 
 use russh::client::{self, AuthResult, Handle};
@@ -27,8 +31,16 @@ const USER: &str = "amiri";
 const AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
 const TMUX: &str = "amiri_s4";
 const STEP: Duration = Duration::from_secs(20);
+/// Size the tmux check resizes the PTY to (rows, cols).
+const ROWS: u32 = 30;
+const COLS: u32 = 100;
 
 type CheckResult = Result<Value, String>;
+
+/// A check passes only if its expectation holds; the observation is kept either way.
+fn verdict(pass: bool, observed: Value) -> CheckResult {
+    if pass { Ok(observed) } else { Err(format!("expectation not met: {observed}")) }
+}
 
 /// Accepts the server key only if `known_hosts` has it for [HOST]:PORT.
 struct Pinned {
@@ -157,14 +169,14 @@ async fn check_auth_agent(work: &Path) -> CheckResult {
     let ok = matches!(r, AuthResult::Success);
     let who = if ok { exec(&s, "whoami").await?.0.trim().to_string() } else { String::new() };
     let _ = s.disconnect(Disconnect::ByApplication, "", "").await;
-    Ok(json!({ "success": ok, "whoami": who, "pipe": AGENT_PIPE }))
+    verdict(ok && who == USER, json!({ "success": ok, "whoami": who, "pipe": AGENT_PIPE }))
 }
 
 async fn check_auth_keyfile(work: &Path) -> CheckResult {
     let s = session(work).await?;
     let who = exec(&s, "whoami").await?.0.trim().to_string();
     let _ = s.disconnect(Disconnect::ByApplication, "", "").await;
-    Ok(json!({ "success": true, "whoami": who }))
+    verdict(who == USER, json!({ "success": true, "whoami": who }))
 }
 
 async fn check_password_refused(work: &Path) -> CheckResult {
@@ -186,12 +198,23 @@ async fn check_tmux_reconnect(work: &Path) -> CheckResult {
     let mut ch = tmux_pty(&s, &format!("tmux new-session -A -s {TMUX}")).await?;
     ch.data_bytes("export AMIRI_S4_VAR=42; echo AMIRI_$((6*7))_SET\r").await.map_err(|e| e.to_string())?;
     read_until(&mut ch, "AMIRI_42_SET").await?;
-    ch.window_change(100, 30, 0, 0).await.map_err(|e| e.to_string())?;
+    ch.window_change(COLS, ROWS, 0, 0).await.map_err(|e| e.to_string())?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     // `$((1+1))` keeps the end marker out of the echoed command line.
     ch.data_bytes("echo SIZE_$(tput lines)x$(tput cols)_$((1+1))END\r").await.map_err(|e| e.to_string())?;
     let size_out = read_until(&mut ch, "_2END").await?;
     let size = size_out.rsplit("SIZE_").next().and_then(|s| s.split("_2END").next()).unwrap_or("").to_string();
+    // The PTY size reaches the tmux *client*; the pane is shorter by the status lines.
+    let fmt = "#{client_height}x#{client_width} #{pane_height}x#{pane_width} #{status}";
+    let (layout, _) = exec(&s, &format!("tmux display -p -t {TMUX} '{fmt}'")).await?;
+    let mut parts = layout.split_whitespace();
+    let (client, pane, status) = (
+        parts.next().unwrap_or("").to_string(),
+        parts.next().unwrap_or("").to_string(),
+        parts.next().unwrap_or("").to_string(),
+    );
+    let status_lines = match status.as_str() { "off" => 0, "on" => 1, n => n.parse().unwrap_or(u32::MAX) };
+    let pane_expected = format!("{}x{COLS}", ROWS.saturating_sub(status_lines));
 
     // Forced disconnect: drop everything without SSH_MSG_DISCONNECT (≈ network loss / amirid crash).
     drop(ch);
@@ -209,9 +232,14 @@ async fn check_tmux_reconnect(work: &Path) -> CheckResult {
     drop(ch2);
     let _ = exec(&s2, &format!("tmux kill-session -t {TMUX}")).await;
     let _ = s2.disconnect(Disconnect::ByApplication, "", "").await;
-    Ok(json!({
-        "size_after_resize": size, "expected_size": "30x100",
-        "tmux_alive_after_forced_disconnect": has.contains("ALIVE"),
+    let requested = format!("{ROWS}x{COLS}");
+    let alive = has.contains("ALIVE");
+    let pass = client == requested && pane == pane_expected && size == pane && alive && back;
+    verdict(pass, json!({
+        "requested_size": requested, "tmux_client_size": client,
+        "tmux_status": status, "tmux_pane_size": pane, "pane_size_expected": pane_expected,
+        "tput_size_in_pane": size,
+        "tmux_alive_after_forced_disconnect": alive,
         "shell_state_after_reattach": back,
         "reconnect_ms": reconnect_ms, "reconnect_and_reattach_ms": reattach_ms,
     }))
@@ -233,15 +261,16 @@ async fn check_sftp(work: &Path) -> CheckResult {
     let size = sftp.metadata(path).await.map_err(|e| format!("stat: {e}"))?.size;
     sftp.remove_file(path).await.map_err(|e| format!("rm: {e}"))?;
     let _ = s.disconnect(Disconnect::ByApplication, "", "").await;
-    Ok(json!({ "bytes": payload.len(), "round_trip_identical": back == payload.as_bytes(),
-               "stat_size": size }))
+    let identical = back == payload.as_bytes();
+    verdict(identical && size == Some(payload.len() as u64),
+            json!({ "bytes": payload.len(), "round_trip_identical": identical, "stat_size": size }))
 }
 
 async fn check_exec_exit_code(work: &Path) -> CheckResult {
     let s = session(work).await?;
     let (_, code) = exec(&s, "exit 7").await?;
     let _ = s.disconnect(Disconnect::ByApplication, "", "").await;
-    Ok(json!({ "expected": 7, "observed": code }))
+    verdict(code == Some(7), json!({ "expected": 7, "observed": code }))
 }
 
 /// Commit the spike ran against; `findings.json` is excluded (the shell truncates it first).
