@@ -33,6 +33,8 @@ jobs:
           Get-Culture | Select-Object Name
           [Console]::OutputEncoding.CodePage
           whoami /groups | Select-String 'S-1-16-'
+          [Environment]::OSVersion.Version.ToString()
+          powershell -NoProfile -Command "`$PSVersionTable.PSVersion.ToString(); Get-Module -ListAvailable PSReadLine | ForEach-Object { `$_.Version.ToString() + ' ' + `$_.ModuleBase }"
 
       - name: Format
         run: cargo fmt --all -- --check

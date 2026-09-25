@@ -209,7 +209,7 @@ impl Shell {
 
 pub fn tail(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
-    c[c.len().saturating_sub(300)..].iter().collect()
+    c[c.len().saturating_sub(2000)..].iter().collect()
 }
 
 /// Print a visible "not run" line past the test harness's capture; returns false.
