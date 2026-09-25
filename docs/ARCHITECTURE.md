@@ -264,6 +264,8 @@ React + TypeScript + Vite; `@xterm/xterm` + fit/web-links addons (the de facto b
 - AMIRI stores **references** to secrets, never values: key file paths, Credential Manager target names.
 - SSH: prefer the Windows OpenSSH agent; fall back to reading the key file at connect time, with the passphrase from Credential Manager. Private key bytes never enter the DB, the event log, or any agent's environment.
 - Provider auth belongs to the CLIs (Claude Code login, Codex login). AMIRI does not read or copy their tokens and only reports whether the probe found them.
+- **Provider accounts: hard rule** `[DECISION]` (decisions.md, 2026-09-25). Agents always run through their official CLIs with their own login. AMIRI **never** extracts, copies or reuses CLI login tokens, **never** rotates accounts automatically to get around a usage limit, and **never** uses another person's account. A usage limit is handled by pausing, API-key billing or provider failover (§8.4), never by switching to a fresh account.
+- **Account profiles per project** (allowed, the user's own accounts only). The user picks which of *their* accounts a project uses, e.g. a subscription login for everyday work and an API key for a client project. A profile is a reference: a separate CLI config directory holding that CLI's own login, or a Credential Manager target for an API key. It's added to the child's allowlisted environment (§9.6) as a deliberate addition. The profile is chosen per project by the user and never changed by AMIRI to escape a limit. `[UNVERIFIED: the per-profile mechanism for each CLI (config-dir variable for Claude Code, `CODEX_HOME` for Codex); confirm in S3 / Phase 2]`
 - A **redaction filter** runs on everything written to the event log, artifacts, and exports: known secret patterns plus exact-match against values fetched from Credential Manager in this process lifetime.
 - Session export requires a redaction review screen.
 
@@ -361,7 +363,7 @@ Orthogonal flags on any active state: AWAITING_APPROVAL · PAUSED
 Terminal: COMPLETED · CANCELLED · ABANDONED
 ```
 
-`AWAITING_APPROVAL` and `PAUSED` are **flags**, not states. The task keeps its phase (e.g. `EXECUTING + AWAITING_APPROVAL`), so resuming puts it back exactly where it was.
+`AWAITING_APPROVAL` and `PAUSED` are **flags**, not states. The task keeps its phase (e.g. `EXECUTING + AWAITING_APPROVAL`), so resuming puts it back exactly where it was. `PAUSED` carries a reason (`user`, `usage_limit`, …) and, when known, the time it may resume (§8.4).
 
 ### 8.2 Transition rules
 
@@ -390,10 +392,32 @@ repo: { path, base_commit, head_commit, diff_artifact }
 evidence: [ {claim, status, metrics, artifact} ]
 prior_findings: [...]          # for repair rounds
 skills: [ CUDA/Blackwell, Benchmarking ]   # references, fetched via MCP on demand
+project_rules: "<the project's single rules source>"
 instructions: "<role prompt from agents.yaml>"
+takeover:                      # only when failing over mid-task (§8.4)
+  from_agent, reason, snapshot_commit, diff_artifact, plan_step_in_progress
 ```
 
 This keeps context explicit, auditable, and provider-independent. The same packet works for Claude or GPT in any role (requirement 11).
+
+**One source of project rules.** Claude Code reads `CLAUDE.md`; Codex reads `AGENTS.md`. AMIRI keeps one rules source per project (named in the project profile) and sends it in every packet as `project_rules`, so both agents work under the same instructions whichever files the repo has. If a repo has both files and they differ, `amiri doctor` and the project view report the divergence; AMIRI does not rewrite them.
+
+### 8.4 Usage limits and provider failover `[DECISION]` (decisions.md, 2026-09-25)
+
+**Detection.** The Claude stream carries `rate_limit_event` with `status`, `resetsAt`, `rateLimitType` (`five_hour`, …) and per-window `utilization` (seen in S2, all with `status: "allowed"`). `[UNVERIFIED: the event and status value when a limit is actually hit, and how the turn ends; Codex's equivalent is part of S3]`. The adapter normalizes these into an `AgentEvent::UsageLimit { window, utilization, resets_at, hit }`, and the UI shows utilization.
+
+**On a limit hit** the task gets `PAUSED` with reason `usage_limit` and `resets_at` if reported. What happens next is set by the per-project policy `provider_failover`:
+- `ASK` (default for new projects): the user chooses between **wait** (auto-resume at `resets_at`, same agent, same session), **API-key billing** for this task (the user's own API-key profile, §6.4), or **hand over** to the other provider.
+- `ALLOW`: hand over without asking. The user sets this per project.
+
+**Handover (e.g. Claude → Codex).**
+1. AMIRI takes a git snapshot (commit on a scratch ref, working tree untouched) and records the diff and the plan step that was in progress. A limit can stop an agent mid-edit, so the step is never assumed finished.
+2. It builds a handoff packet with a `takeover` block (§8.3). The fallback agent's first instruction is to verify the working state: read the diff and run the configured tests before continuing, and report what it found.
+3. **Review independence.** If the fallback agent was this task's reviewer, it is now reviewing its own work. AMIRI records that review independence is lost and either queues a review by the original agent for when its limit resets, or asks the user to review. The REVIEWING guard (§8.2) doesn't pass on a self-review.
+4. **Stay until done.** The fallback agent keeps the task until it completes. Normal role assignments return at the next task. No switching back mid-task.
+5. **Both limited:** the task stays `PAUSED` until whichever agent resets first, and continues with that one. No ping-pong between providers.
+
+Every step is an event (`task.paused`, `task.failover`, `review.independence_lost`). Failover changes the provider, never the account (§6.4).
 
 ---
 
@@ -434,6 +458,7 @@ pub enum AgentEvent {                       // normalized across providers
     FileChanged { path: String, change: ChangeKind },
     PermissionRequested { id: PermissionId, action: ActionType, detail: String },
     Usage { input_tokens: u64, output_tokens: u64, cost_usd: Option<f64> },
+    UsageLimit { window: String, utilization: Option<f64>, resets_at: Option<Timestamp>, hit: bool },  // §8.4
     TurnCompleted { turn: TurnId, outcome: TurnOutcome },
     Error(AmiriError),
     Raw { provider: String, json: serde_json::Value },   // preserved for debugging
@@ -501,6 +526,17 @@ Read-only probe commands (`uname -a`, `cat /etc/os-release`, `nvidia-smi --query
 
 ### 10.8 WSL transport
 `wsl.exe -d <distro> --cd <dir> -- <cmd>` through ConPTY/stdio. tmux inside WSL gives the same persistence model as remote Linux. Paths are translated both ways (`D:\x` ↔ `/mnt/d/x`) in one tested function.
+
+### 10.9 Compute: training jobs on other machines' GPUs `[PROPOSAL — needs reviewer agreement]`
+A subsystem separate from agents. A training run is not an agent session: it's a command with resources, run to completion, and its output is evidence.
+- **GPU inventory per machine:** model, VRAM, driver/CUDA version, current use. Filled by the existing read-only probe (§10.7, `nvidia-smi --query-gpu=...`) and refreshed on the same cadence.
+- **Job queue:** a job is command + target machine + GPUs needed + data location + checkpoint directory. Queued per machine; a job starts only when its GPUs are free by the inventory and the machine's cap allows it.
+- **Execution:** each job runs in its own remote tmux session (§10.5; S4 showed tmux sessions survive a dropped connection), with logs streamed back by byte offset like the agent journal. After a disconnect AMIRI reattaches; after a reboot or crash it restarts the command, and the job resumes from its latest checkpoint (the job's command must support resuming, declared in the job spec).
+- **Results as evidence (§13):** metrics and loss curves parsed from the log artifact, the final checkpoint's SHA-256, commit, dirty flag, machine and environment fingerprint, recorded like a benchmark run (`EXPERIMENT` evidence).
+- **Policy:** `compute.start_job` is ASK by default on any machine, and always ASK on a machine the user marks as someone else's. Each machine profile can cap AMIRI's use (GPUs by index, and a limit on concurrent jobs).
+- **Scope:** one job per machine first (parallel experiments, sweeps, different models). Distributed training of a single model across home machines is a later option: over ordinary Ethernet the GPUs mostly wait on the network.
+- **Reuse before building:** spike S6 (§16.2) evaluates SkyPilot, dstack and Ray for scheduling on the user's own machines over SSH. If one fits, AMIRI wraps it and keeps only inventory, policy and evidence; the scheduler above is the fallback design.
+- Phase placement: after Phase 3 (SSH), which it depends on `[OPEN]`.
 
 ---
 
@@ -602,11 +638,12 @@ A phase is complete only when its exit criteria (§16) pass on the Windows CI ru
 **Phase 0 — Spikes (throwaway code, findings recorded as evidence)**
 - S1 ConPTY: portable-pty on the target Windows build: interactive `pwsh`, ANSI, resize, Ctrl+C, and **what happens to the child when the host process dies** (settles D3).
 - S2 Claude stream-json: bidirectional stdin/stdout session, `--session-id`/`--resume`, interrupt, `--permission-prompt-tool` round-trip through a toy MCP server; record raw fixtures.
-- S3 Codex app-server: thread/turn lifecycle, approval request round-trip, interrupt, shutdown behavior; decide `codex-codes` vs. own client.
+- S3 Codex app-server: thread/turn lifecycle, approval request round-trip, interrupt, shutdown behavior; decide `codex-codes` vs. own client. Also the **failover pickup** (§8.4): given a handoff packet with a `takeover` block, a half-finished diff in a scratch repo and a simulated Claude limit event, Codex's first actions are to inspect the diff and run the tests, then continue. Also: Codex's usage-limit signal, and its per-profile config mechanism (§6.4).
 - S2 and S3 both: close stdin mid-turn and record whether the CLI and its child processes exit (S1b showed a child that ignores EOF survives as an orphan). Run within the approved limits in `docs/decisions.md`.
 - S1b Process lifetime (done): host kill vs. ConPTY and pipe children; cause of death recorded. See `spikes/s1b-process-lifetime/FINDINGS.md`.
 - S4 russh on Windows: key auth via Windows ssh-agent pipe, PTY into tmux, SFTP, reconnect.
 - S5 AgentsCommander evaluation (§2.1): fork / lift / reference.
+- S6 compute schedulers `[PROPOSAL]` (§10.9): SkyPilot, dstack and Ray against the user's own machines over SSH: setup without a cloud account, GPU discovery, job survival across a dropped connection, checkpoint resume, Windows client support, license. Runs before the Compute design is finalized; not needed to finish Phase 0.
 - Exit: a one-page findings note per spike; this document updated, with `[UNVERIFIED]` tags resolved or converted to risks.
 
 **Phase 1 — Windows shell**
@@ -678,6 +715,8 @@ Exit: clean Windows Sandbox install test passes.
 8. Licensing for AMIRI itself (MIT/Apache-2.0 dual is the Rust norm and compatible with the MIT/Apache sources above).
 9. Code signing: acquire a certificate, use a foundation program (as AgentsCommander plans with SignPath), or ship unsigned initially?
 10. `amiri-sessiond` (a minimal process owning only the ConPTYs so local shells survive an `amirid` crash or upgrade, §D3). **Deferred.** In v1 a daemon crash marks sessions UNKNOWN; agent conversations resume from the providers' own session stores; long-running work goes through tmux in WSL or on a remote machine, which already survives. Decide once there is data on real `amirid` crash frequency. S1b settled the mechanism: ConPTY children die from `CTRL_CLOSE_EVENT` when the owning process dies (no job object involved), so a separate `amiri-sessiond` would keep them alive. The option is technically sound; only its value is open.
+
+11. Compute subsystem (§10.9) and spike S6: accept the proposal, and where does it go in the phase order?
 
 ---
 
