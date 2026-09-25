@@ -3,6 +3,7 @@
 
 use super::auth::authenticate;
 use super::handlers::{self, Outcome};
+use super::session_handlers::ConnTasks;
 use super::state::State;
 use amiri_ipc::framing::{read_line, MAX_LINE};
 use amiri_ipc::protocol::{codes, Request, Response, RpcError};
@@ -13,7 +14,6 @@ use std::time::Duration;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tokio::sync::{mpsc, Semaphore};
-use tokio::task::JoinHandle;
 
 const OUTBOX: usize = 256;
 /// Connections that haven't completed `hello` yet. More are dropped on arrival.
@@ -104,16 +104,14 @@ async fn connection(
     });
     let client = authenticate(&state, &mut reader, &tx).await;
     drop(permit);
-    let mut subscription: Option<JoinHandle<()>> = None;
+    let mut tasks = ConnTasks::default();
     if let Some(client) = client {
         state.client_connected();
-        serve_requests(&state, &mut reader, &tx, &client, &mut subscription).await;
+        serve_requests(&state, &mut reader, &tx, &client, &mut tasks).await;
         state.client_disconnected();
     }
-    // A subscription task holds a sender; stop it so the writer can finish.
-    if let Some(task) = subscription {
-        task.abort();
-    }
+    // Subscription and attachment tasks hold senders; stop them so the writer finishes.
+    tasks.abort_all();
     drop(tx);
     if let Err(e) = writer.await {
         tracing::debug!(error = %e, "connection writer ended abnormally");
@@ -125,7 +123,7 @@ async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
     tx: &mpsc::Sender<String>,
     client: &str,
-    subscription: &mut Option<JoinHandle<()>>,
+    tasks: &mut ConnTasks,
 ) {
     loop {
         let line = match read_line(reader, MAX_LINE).await {
@@ -137,7 +135,7 @@ async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
             }
         };
         let reply = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => match handlers::dispatch(state, &req, client, tx, subscription).await {
+            Ok(req) => match handlers::dispatch(state, &req, client, tx, tasks).await {
                 Outcome::Reply(r) => r,
                 Outcome::ReplyThenStop(r) => {
                     send(tx, &r).await;

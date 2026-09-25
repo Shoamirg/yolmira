@@ -97,6 +97,7 @@ Exit tests (`app/e2e/`, WebDriver through `tauri-driver`):
 Builds:
 - **Minimal policy engine (§6.3):**
   - Typed actions for what Phase 1 does: `session.create`, `session.kill`, `daemon.stop`, `project.register`, `project.remove`.
+  - **System-level changes are always ASK** (reviewer, 2026-09-25, after the ComSpec/PATH repair was run elevated with only the UAC click as a check): `system.elevate` (starting anything elevated) and `system.env.write` / `system.registry.write`. The prompt shows the exact commands before any UAC dialog appears; a narrower rule can't loosen it to ALLOW.
   - Rules in `%APPDATA%\AMIRI\policies.toml` (TOML, decisions Q4); scopes resolve project → global. Unknown actions → ASK.
   - ASK blocks the request until a client answers: a prompt in the UI, `amiri approve <id>` or an interactive prompt in the CLI. Approval scope is once or this session.
   - Every decision is a `policy.decision` event. The destructive git classifications are in the table already (tested), even though git arrives in Phase 8.

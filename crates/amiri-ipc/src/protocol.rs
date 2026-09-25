@@ -32,11 +32,22 @@ pub mod methods {
     pub const DAEMON_STOP: &str = "daemon.stop";
     pub const EVENTS_LIST: &str = "events.list";
     pub const EVENTS_SUBSCRIBE: &str = "events.subscribe";
+    pub const SESSION_CREATE: &str = "session.create";
+    pub const SESSION_LIST: &str = "session.list";
+    pub const SESSION_ATTACH: &str = "session.attach";
+    pub const SESSION_DETACH: &str = "session.detach";
+    pub const SESSION_INPUT: &str = "session.input";
+    pub const SESSION_RESIZE: &str = "session.resize";
+    pub const SESSION_KILL: &str = "session.kill";
 }
 
 /// Notification methods (daemon → client).
 pub mod notifications {
     pub const EVENT: &str = "event";
+    /// Terminal output for an attached session (`SessionOutput`).
+    pub const SESSION_OUTPUT: &str = "session.output";
+    /// An attached session's shell exited (`SessionExited`).
+    pub const SESSION_EXITED: &str = "session.exited";
 }
 
 /// Every method, and the event a state-changing one must record. Slice D's
@@ -45,34 +56,48 @@ pub struct MethodSpec {
     pub name: &'static str,
     pub mutating: bool,
     pub event: Option<&'static str>,
+    /// A mutating method deliberately not logged, and why.
+    pub unlogged: Option<&'static str>,
 }
 
-pub const METHODS: &[MethodSpec] = &[
+const fn read(name: &'static str) -> MethodSpec {
     MethodSpec {
-        name: methods::HELLO,
+        name,
         mutating: false,
         event: None,
-    },
+        unlogged: None,
+    }
+}
+
+const fn logged(name: &'static str, event: &'static str) -> MethodSpec {
     MethodSpec {
-        name: methods::DAEMON_STATUS,
-        mutating: false,
-        event: None,
-    },
-    MethodSpec {
-        name: methods::DAEMON_STOP,
+        name,
         mutating: true,
-        event: Some(amiri_core::event::kinds::DAEMON_STOPPING),
-    },
+        event: Some(event),
+        unlogged: None,
+    }
+}
+
+use amiri_core::event::kinds;
+
+pub const METHODS: &[MethodSpec] = &[
+    read(methods::HELLO),
+    read(methods::DAEMON_STATUS),
+    logged(methods::DAEMON_STOP, kinds::DAEMON_STOPPING),
+    read(methods::EVENTS_LIST),
+    read(methods::EVENTS_SUBSCRIBE),
+    logged(methods::SESSION_CREATE, kinds::SESSION_CREATED),
+    read(methods::SESSION_LIST),
+    logged(methods::SESSION_ATTACH, kinds::SESSION_ATTACHED),
+    logged(methods::SESSION_DETACH, kinds::SESSION_DETACHED),
     MethodSpec {
-        name: methods::EVENTS_LIST,
-        mutating: false,
+        name: methods::SESSION_INPUT,
+        mutating: true,
         event: None,
+        unlogged: Some("keystrokes may contain passwords and secrets (phase1-plan Slice B)"),
     },
-    MethodSpec {
-        name: methods::EVENTS_SUBSCRIBE,
-        mutating: false,
-        event: None,
-    },
+    logged(methods::SESSION_RESIZE, kinds::SESSION_RESIZED),
+    logged(methods::SESSION_KILL, kinds::SESSION_KILL_REQUESTED),
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -249,6 +274,77 @@ pub struct EventsSubscribeParams {
 /// Params of the `event` notification.
 pub type EventNotification = Event;
 
+/// Shell kinds as the protocol names them (`amiri_exec::ShellKind` has the same shape).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionCreateParams {
+    /// `{"kind": "cmd"}`, `{"kind": "powershell"}`, `{"kind": "pwsh"}`, `{"kind": "wsl", "distro": …}`.
+    pub shell: Value,
+    /// Working directory; the user's profile folder if omitted.
+    #[serde(default)]
+    pub cwd: Option<String>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub id: String,
+    pub shell: String,
+    pub cwd: String,
+    pub pid: Option<u32>,
+    /// `RUNNING`, `EXITED`, `UNKNOWN` (the projection's status).
+    pub status: String,
+    pub exit_code: Option<i64>,
+    pub attached: u32,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionIdParams {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionAttachResult {
+    pub info: SessionInfo,
+    /// Size of the scrollback that follows as `session.output` notifications (the first
+    /// with `reset`), before live output.
+    pub replay_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInputParams {
+    pub id: String,
+    /// Bytes for the terminal, base64.
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionResizeParams {
+    pub id: String,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// Params of the `session.output` notification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionOutput {
+    pub id: String,
+    /// base64.
+    pub data: String,
+    /// The client fell behind: clear the screen and write `data` (the scrollback) instead.
+    #[serde(default)]
+    pub reset: bool,
+}
+
+/// Params of the `session.exited` notification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionExited {
+    pub id: String,
+    pub exit_code: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,9 +372,10 @@ mod tests {
 
     #[test]
     fn every_mutating_method_names_its_event() {
+        // Each mutating method either records an event or says why it doesn't.
         assert!(METHODS
             .iter()
             .filter(|m| m.mutating)
-            .all(|m| m.event.is_some()));
+            .all(|m| m.event.is_some() != m.unlogged.is_some()));
     }
 }

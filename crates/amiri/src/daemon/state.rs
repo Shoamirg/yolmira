@@ -26,6 +26,7 @@ pub struct State {
     pub started_at: String,
     clients: AtomicU32,
     auth_failures: Mutex<HashMap<String, (Instant, u64)>>,
+    pub sessions: super::sessions::Sessions,
 }
 
 impl State {
@@ -40,6 +41,7 @@ impl State {
             started_at: amiri_core::time::now_rfc3339(),
             clients: AtomicU32::new(0),
             auth_failures: Mutex::new(HashMap::new()),
+            sessions: super::sessions::Sessions::default(),
         }
     }
 

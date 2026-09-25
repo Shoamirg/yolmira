@@ -1,8 +1,11 @@
 //! `amiri`: the command-line client. Every command talks to the daemon over its pipe.
 
+mod attach;
 mod commands;
+mod console;
 pub mod doctor;
 mod output;
+mod shell;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -31,6 +34,11 @@ pub enum Command {
         #[command(subcommand)]
         action: DaemonAction,
     },
+    /// Terminal sessions run by the daemon (they survive this window).
+    Shell {
+        #[command(subcommand)]
+        action: ShellAction,
+    },
     /// Check this machine for problems that break AMIRI or other tools (no daemon needed).
     Doctor,
     /// Show the event log.
@@ -47,6 +55,31 @@ pub enum Command {
         #[arg(long)]
         follow: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ShellAction {
+    /// Start a shell in the daemon.
+    New {
+        /// cmd, powershell, pwsh or wsl.
+        #[arg(long, default_value = "cmd")]
+        kind: String,
+        /// WSL distribution (with --kind wsl).
+        #[arg(long)]
+        distro: Option<String>,
+        /// Working folder (default: your profile folder).
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Attach right away.
+        #[arg(long)]
+        attach: bool,
+    },
+    /// List sessions, running and ended.
+    List,
+    /// Attach this console to a session (Ctrl+] detaches; the shell keeps running).
+    Attach { id: String },
+    /// End a session's shell.
+    Kill { id: String },
 }
 
 #[derive(Subcommand, Debug)]

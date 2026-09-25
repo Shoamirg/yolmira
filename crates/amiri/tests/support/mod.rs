@@ -2,6 +2,8 @@
 //! run in parallel and never touch the user's real daemon.
 #![allow(dead_code)]
 
+pub mod shell;
+
 use amiri_ipc::win::security::is_elevated;
 use amiri_ipc::{Client, Instance};
 use serde_json::Value;
@@ -101,10 +103,16 @@ impl TestEnv {
     /// Start the daemon: through the real (detaching) launcher when possible,
     /// otherwise `amirid` directly inside the current job.
     pub fn start(&self) -> Value {
+        self.start_with_env(&[])
+    }
+
+    /// Start with extra variables in the *launcher's* environment (they must not reach
+    /// the daemon's shells: the child environment is an allowlist).
+    pub fn start_with_env(&self, extra: &[(&str, &str)]) -> Value {
         if !self.can_detach {
-            return self.start_in_job();
+            return self.start_in_job(extra);
         }
-        let out = run_bounded(AMIRI, &self.start_args(), &self.home());
+        let out = run_bounded_env(AMIRI, &self.start_args(), &self.home(), extra);
         assert!(
             out.status.success(),
             "start failed: {}",
@@ -113,13 +121,18 @@ impl TestEnv {
         last_json(&out)
     }
 
-    fn start_in_job(&self) -> Value {
+    fn start_in_job(&self, extra: &[(&str, &str)]) -> Value {
         if let Some(pid) = self.running_pid() {
             return serde_json::json!({ "state": "already_running", "pid": pid });
         }
         let opts = amiri_ipc::win::process::SpawnOptions {
             exe: AMIRID.into(),
             args: self.amirid_args(),
+            env: (!extra.is_empty()).then(|| {
+                let mut vars: Vec<(String, String)> = std::env::vars().collect();
+                vars.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+                vars
+            }),
             flags: amiri_ipc::win::process::CREATE_NO_WINDOW,
             ..Default::default()
         };
@@ -227,10 +240,29 @@ pub fn try_run_bounded(
     args: &[String],
     home: &std::path::Path,
 ) -> Result<Output, String> {
+    try_run_bounded_env(exe, args, home, &[])
+}
+
+pub fn run_bounded_env(
+    exe: &str,
+    args: &[String],
+    home: &std::path::Path,
+    extra: &[(&str, &str)],
+) -> Output {
+    try_run_bounded_env(exe, args, home, extra).unwrap_or_else(|msg| panic!("{msg}"))
+}
+
+pub fn try_run_bounded_env(
+    exe: &str,
+    args: &[String],
+    home: &std::path::Path,
+    extra: &[(&str, &str)],
+) -> Result<Output, String> {
     use std::io::Read;
     use std::process::Stdio;
     let mut child = Command::new(exe)
         .args(args)
+        .envs(extra.iter().copied())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -306,6 +338,8 @@ pub struct Pty {
     pub master: Box<dyn portable_pty::MasterPty + Send>,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
     pub writer: std::sync::Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>>,
+    /// Everything the child wrote (lossy UTF-8).
+    pub output: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 impl Pty {
@@ -328,11 +362,16 @@ impl Pty {
         ));
         let mut reader = pair.master.try_clone_reader().expect("reader");
         let answer = std::sync::Arc::clone(&writer);
+        let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = std::sync::Arc::clone(&output);
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
+                }
+                if let Ok(mut o) = sink.lock() {
+                    o.push_str(&String::from_utf8_lossy(&buf[..n]));
                 }
                 if buf[..n].windows(4).any(|w| w == b"\x1b[6n") {
                     if let Ok(mut w) = answer.lock() {
@@ -345,7 +384,27 @@ impl Pty {
             master: pair.master,
             child,
             writer,
+            output,
         }
+    }
+
+    pub fn text(&self) -> String {
+        self.output.lock().map(|o| o.clone()).unwrap_or_default()
+    }
+
+    /// Wait until the output contains `needle`; panics with the tail on timeout.
+    pub fn wait_for(&self, needle: &str, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if self.text().contains(needle) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!(
+            "timed out waiting for {needle:?}; output tail: {:?}",
+            shell::tail(&self.text())
+        );
     }
 
     pub fn send(&self, bytes: &[u8]) {

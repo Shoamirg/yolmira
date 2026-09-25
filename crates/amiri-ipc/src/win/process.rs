@@ -273,6 +273,43 @@ pub fn wait_pid_exit(pid: u32, timeout: Duration) -> io::Result<bool> {
     }
 }
 
+/// A handle to another process, held from right after it starts (so its pid can't be
+/// reused under us), for waiting on its exit and reading the exit code.
+#[derive(Debug)]
+pub struct ProcessWatch {
+    handle: OwnedHandle,
+}
+
+impl ProcessWatch {
+    pub fn open(pid: u32) -> io::Result<Self> {
+        use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
+        // SAFETY: plain open; owned below.
+        let h = unsafe {
+            OpenProcess(
+                PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            )
+        };
+        OwnedHandle::new(h)
+            .map(|handle| Self { handle })
+            .ok_or_else(io::Error::last_os_error)
+    }
+
+    /// Exit code if the process exits within `timeout`.
+    pub fn wait(&self, timeout: Duration) -> io::Result<Option<u32>> {
+        if !wait_handle(&self.handle, timeout)? {
+            return Ok(None);
+        }
+        let mut code = 0u32;
+        // SAFETY: valid process handle; `code` is an out-param.
+        if unsafe { GetExitCodeProcess(self.handle.raw(), &mut code) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Some(code))
+    }
+}
+
 /// Whether the current process is in any job.
 pub fn current_process_in_job() -> io::Result<bool> {
     let mut result = 0;

@@ -51,6 +51,10 @@ pub mod kinds {
     pub const SESSION_CREATED: &str = "session.created";
     pub const SESSION_EXITED: &str = "session.exited";
     pub const SESSION_UNKNOWN: &str = "session.unknown";
+    pub const SESSION_ATTACHED: &str = "session.attached";
+    pub const SESSION_DETACHED: &str = "session.detached";
+    pub const SESSION_RESIZED: &str = "session.resized";
+    pub const SESSION_KILL_REQUESTED: &str = "session.kill_requested";
 }
 
 /// Actors (§7.2 `actor`).

@@ -1,7 +1,7 @@
 //! Command implementations.
 
 use super::output::Out;
-use super::{exit, Cli, Command, DaemonAction};
+use super::{exit, shell, Cli, Command, DaemonAction, ShellAction};
 use amiri_core::{AmiriError, Event};
 use amiri_ipc::protocol::{
     methods, notifications, DaemonStatus, EventsListParams, EventsSubscribeParams,
@@ -44,6 +44,17 @@ pub async fn run(cli: Cli) -> u8 {
             follow,
         } => events(&out, instance, after, limit, kind, follow).await,
         Command::Doctor => Ok(doctor(&out)),
+        Command::Shell { action } => match action {
+            ShellAction::New {
+                kind,
+                distro,
+                cwd,
+                attach,
+            } => shell::new(&out, instance, &kind, distro, cwd, attach).await,
+            ShellAction::List => shell::list(&out, instance).await,
+            ShellAction::Attach { id } => shell::attach(&out, instance, id).await,
+            ShellAction::Kill { id } => shell::kill(&out, instance, id).await,
+        },
     };
     match result {
         Ok(code) => code,
@@ -52,6 +63,14 @@ pub async fn run(cli: Cli) -> u8 {
             exit::ERROR
         }
     }
+}
+
+/// Start the daemon if needed, then connect.
+pub(super) async fn connect_started(instance: &Instance) -> Result<Client, AmiriError> {
+    ensure_daemon(launch_options(instance.clone(), false)?).await?;
+    Client::connect(instance, CLIENT)
+        .await
+        .map_err(client_error)
 }
 
 fn doctor(out: &Out) -> u8 {
@@ -234,7 +253,7 @@ async fn events(
     }
 }
 
-fn client_error(e: ClientError) -> AmiriError {
+pub(super) fn client_error(e: ClientError) -> AmiriError {
     let base = AmiriError::new("Talk to the AMIRI daemon", "cli", e.to_string());
     match e {
         ClientError::Rpc(r) => match r.data {

@@ -10,26 +10,15 @@ use windows_sys::Win32::System::Registry::{
 use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
 
 /// Identity and system-layout variables taken from the current process. `SystemRoot`,
-/// `windir` and `ComSpec` are not in this list: they come from Windows itself, so a
-/// launcher can't redirect every future shell by setting them.
-/// Known gap (Slice B): the profile folders still come from the process environment;
-/// they should come from `SHGetKnownFolderPath`.
+/// `windir`, `ComSpec`, the profile and the program folders are not in this list:
+/// they come from Windows itself, so a launcher can't redirect every future shell by
+/// setting them. None of these is used to find a program.
 pub const PASS_THROUGH: &[&str] = &[
     "SystemDrive",
     "PATHEXT",
     "OS",
-    "USERPROFILE",
-    "HOMEDRIVE",
-    "HOMEPATH",
-    "APPDATA",
-    "LOCALAPPDATA",
     "USERNAME",
     "USERDOMAIN",
-    "ProgramData",
-    "ProgramFiles",
-    "ProgramFiles(x86)",
-    "ProgramW6432",
-    "CommonProgramFiles",
     "NUMBER_OF_PROCESSORS",
     "PROCESSOR_ARCHITECTURE",
 ];
@@ -56,10 +45,11 @@ pub struct EnvSource {
 
 impl EnvSource {
     pub fn system() -> Self {
-        let process = PASS_THROUGH
+        let mut process: Vec<(String, String)> = PASS_THROUGH
             .iter()
             .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
             .collect();
+        process.extend(profile_folders());
         let windows_dir = windows_dir()
             .map_err(|e| tracing::warn!(error = %e, "GetSystemWindowsDirectoryW failed; SystemRoot omitted"))
             .ok();
@@ -100,6 +90,8 @@ pub fn child_env() -> Vec<(String, String)> {
 /// Pure: the allowlisted environment for the given inputs.
 pub fn build_child_env(src: &EnvSource) -> Vec<(String, String)> {
     let mut vars = src.process.clone();
+    // cmd and CreateProcess then never run a program from the working folder by name.
+    vars.push(("NoDefaultCurrentDirectoryInExePath".into(), "1".into()));
     if let Some(dir) = &src.windows_dir {
         vars.push(("SystemRoot".into(), dir.clone()));
         vars.push(("windir".into(), dir.clone()));
@@ -137,6 +129,67 @@ pub fn registry_path() -> String {
         .find(|(k, _)| k == "PATH")
         .map(|(_, v)| v)
         .unwrap_or_default()
+}
+
+/// Profile and program folders (`USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`,
+/// `LOCALAPPDATA`, `ProgramData`, `ProgramFiles*`, `CommonProgramFiles`) from Windows'
+/// known folders. A folder Windows can't resolve is logged and omitted.
+fn profile_folders() -> Vec<(String, String)> {
+    use windows_sys::Win32::UI::Shell::{
+        FOLDERID_LocalAppData, FOLDERID_Profile, FOLDERID_ProgramData, FOLDERID_ProgramFiles,
+        FOLDERID_ProgramFilesCommon, FOLDERID_ProgramFilesX86, FOLDERID_RoamingAppData,
+    };
+    let mut vars = Vec::new();
+    for (name, id) in [
+        ("USERPROFILE", &FOLDERID_Profile),
+        ("APPDATA", &FOLDERID_RoamingAppData),
+        ("LOCALAPPDATA", &FOLDERID_LocalAppData),
+        ("ProgramData", &FOLDERID_ProgramData),
+        ("ProgramFiles", &FOLDERID_ProgramFiles),
+        ("ProgramW6432", &FOLDERID_ProgramFiles),
+        ("ProgramFiles(x86)", &FOLDERID_ProgramFilesX86),
+        ("CommonProgramFiles", &FOLDERID_ProgramFilesCommon),
+    ] {
+        match known_folder(id) {
+            Ok(path) => vars.push((name.to_string(), path)),
+            Err(e) => {
+                tracing::warn!(name, error = %e, "known folder lookup failed; variable omitted")
+            }
+        }
+    }
+    let profile = vars
+        .iter()
+        .find(|(k, _)| k == "USERPROFILE")
+        .map(|(_, v)| v.clone());
+    if let Some(p) = profile {
+        // `C:\Users\u` → HOMEDRIVE `C:`, HOMEPATH `\Users\u` (what Windows sets at logon).
+        if p.len() > 2 && p.as_bytes()[1] == b':' {
+            vars.push(("HOMEDRIVE".into(), p[..2].to_string()));
+            vars.push(("HOMEPATH".into(), p[2..].to_string()));
+        }
+    }
+    vars
+}
+
+fn known_folder(id: &windows_sys::core::GUID) -> io::Result<String> {
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
+    let mut path: *mut u16 = std::ptr::null_mut();
+    // SAFETY: `id` is a valid KNOWNFOLDERID; null token = current user; `path` receives a
+    // CoTaskMemAlloc'd string that is freed below on every path.
+    let hr = unsafe { SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut path) };
+    let result = if hr < 0 {
+        Err(io::Error::from_raw_os_error(hr))
+    } else {
+        // SAFETY: on success `path` is a NUL-terminated wide string.
+        Ok(unsafe {
+            let n = (0..).take_while(|&i| *path.add(i) != 0).count();
+            from_wide(std::slice::from_raw_parts(path, n))
+        })
+    };
+    // SAFETY: CoTaskMemFree accepts null and the pointer SHGetKnownFolderPath returned.
+    unsafe { CoTaskMemFree(path.cast()) };
+    result
 }
 
 /// `cmd.exe` under the Windows directory: used when `ComSpec` is missing.
@@ -344,6 +397,19 @@ mod tests {
         assert_eq!(
             windows_powershell(src.windows_dir.as_deref().unwrap()),
             r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        );
+    }
+
+    #[test]
+    fn profile_folders_come_from_windows() {
+        let vars = profile_folders();
+        let get = |k: &str| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let profile = get("USERPROFILE").expect("USERPROFILE");
+        assert!(std::path::Path::new(&profile).is_dir(), "{profile}");
+        assert!(get("LOCALAPPDATA").unwrap().starts_with(&profile));
+        assert_eq!(
+            format!("{}{}", get("HOMEDRIVE").unwrap(), get("HOMEPATH").unwrap()),
+            profile
         );
     }
 

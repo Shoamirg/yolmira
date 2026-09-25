@@ -21,6 +21,8 @@ Pinned by the committed `Cargo.lock` (123 packages in total at Slice A, includin
 | `thiserror` | Store error type | §5.1 | — | MIT OR Apache-2.0 | 2.0.21 | 2026-09-25 | `portable-pty` also pulls `thiserror` 1.0.69 (duplicate) |
 | `tracing` / `tracing-subscriber` (`json`, `env-filter`) / `tracing-appender` | Daemon logs, JSON, daily files in `<home>\logs` | §5.1, §14 | `log` | MIT | 0.1.44 / 0.3.23 / 0.2.5 | 2026-09-25 | Level via `AMIRI_LOG` |
 | `clap` (`derive`) | CLI and daemon arguments | Standard | `argh` | MIT OR Apache-2.0 | 4.6.7 | 2026-09-25 | |
-| `portable-pty` | ConPTY (dev-dependency in Slice A tests; product use in Slice B) | §5.1; the version S1 tested | raw ConPTY via `windows-sys` | MIT | 0.9.0 | 2026-09-25 | ConPTY sends DSR (`ESC[6n`) and stalls until answered (S1 finding 5; hit again in Slice A tests) |
+| `portable-pty` | ConPTY shells (`amiri-exec`, Slice B) | §5.1; the version S1 tested | raw ConPTY via `windows-sys` | MIT | 0.9.0 | 2026-09-25 | ConPTY sends DSR (`ESC[6n`) and stalls until answered (S1 finding 5); its output doesn't reach EOF when the shell exits (only when the pseudoconsole closes), so exit is watched separately; it asks the outer terminal for win32-input-mode (`ESC[?9001h`) |
+| `base64` | Terminal bytes in JSON-RPC (`session.input`, `session.output`, replay) | Standard; binary-safe | hex (twice the size) | MIT OR Apache-2.0 | 0.23.1 | 2026-09-25 | |
+| `windows-sys` features added in Slice B | `Win32_UI_Shell` + `Win32_System_Com` (known folders), `Win32_Globalization` (UTF-8 console code page) | | | | 0.61.2 | 2026-09-25 | |
 | `tempfile` (dev) | Test data folders | Standard | — | MIT OR Apache-2.0 | 3.27.0 | 2026-09-25 | |
 | `gitleaks` (tool, not a dependency) | Secret scan before pushes | Reviewer's requirement | — | MIT | 8.30.1 | 2026-09-25 | Release zip SHA-256 `d29144de…32afc4e` verified against the published checksums |

@@ -30,7 +30,7 @@ try {
         $out = & cmd /d /c "`"$exe`" $($testArgs -join ' ') 2>&1"
         $code = $LASTEXITCODE
         $out | ForEach-Object { Write-Host $_ }
-        $notRun += $out | Where-Object { $_ -match '^NOT RUN ON CI' }
+        $notRun += $out | Where-Object { $_ -match '^NOT RUN' }
         if ($code -ne 0) { $failed += $exe }
     }
     if ($notRun.Count -gt 0) {

@@ -2,6 +2,7 @@
 //! Store reads run on the blocking pool and in bounded pages.
 
 use super::server::to_line;
+use super::session_handlers::{self as sh, ConnTasks};
 use super::state::State;
 use amiri_core::event::kinds;
 use amiri_core::{AmiriError, Event, NewEvent};
@@ -31,9 +32,30 @@ pub async fn dispatch(
     req: &Request,
     client: &str,
     tx: &mpsc::Sender<String>,
-    subscription: &mut Option<JoinHandle<()>>,
+    tasks: &mut ConnTasks,
 ) -> Outcome {
     let result = match req.method.as_str() {
+        methods::SESSION_CREATE => match params(req) {
+            Ok(p) => sh::create(state, p, client).await,
+            Err(e) => Err(e),
+        },
+        methods::SESSION_LIST => sh::list(state).await,
+        methods::SESSION_ATTACH => {
+            params(req).and_then(|p| sh::attach(state, p, client, tx, tasks))
+        }
+        methods::SESSION_DETACH => params(req).and_then(|p| sh::detach(p, tasks)),
+        methods::SESSION_INPUT => match params(req) {
+            Ok(p) => sh::input(state, p).await,
+            Err(e) => Err(e),
+        },
+        methods::SESSION_RESIZE => match params(req) {
+            Ok(p) => sh::resize(state, p, client).await,
+            Err(e) => Err(e),
+        },
+        methods::SESSION_KILL => match params(req) {
+            Ok(p) => sh::kill(state, p, client).await,
+            Err(e) => Err(e),
+        },
         methods::DAEMON_STATUS => status(state),
         methods::DAEMON_STOP => return stop(state, req, client),
         methods::EVENTS_LIST => match params::<EventsListParams>(req) {
@@ -41,13 +63,13 @@ pub async fn dispatch(
             Err(e) => Err(e),
         },
         methods::EVENTS_SUBSCRIBE => params::<EventsSubscribeParams>(req).and_then(|p| {
-            if subscription.is_some() {
+            if tasks.events.is_some() {
                 return Err(RpcError::new(
                     codes::INVALID_REQUEST,
                     "already subscribed on this connection",
                 ));
             }
-            *subscription = Some(subscribe(state, p, tx));
+            tasks.events = Some(subscribe(state, p, tx));
             Ok(json!({ "subscribed": true }))
         }),
         methods::HELLO => Err(RpcError::new(

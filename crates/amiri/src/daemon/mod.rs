@@ -6,6 +6,8 @@ mod auth;
 mod console;
 mod handlers;
 mod server;
+mod session_handlers;
+mod sessions;
 mod shutdown;
 mod state;
 
@@ -29,6 +31,8 @@ use windows_sys::Win32::System::LibraryLoader::{
 
 /// A daemon that is stopping still holds the instance for a moment; a new one waits.
 const INSTANCE_WAIT: Duration = Duration::from_secs(5);
+/// How long shutdown waits for shells to report their exit.
+const SESSION_KILL_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Parser, Debug)]
 #[command(name = "amirid", version, about = "AMIRI daemon")]
@@ -166,6 +170,10 @@ async fn serve_until_stopped(state: Arc<State>, started: serde_json::Value) -> R
     state
         .record(NewEvent::new(kinds::DAEMON_STARTED, actors::AMIRI, started))
         .map_err(|e| e.to_string())?;
+    let stale = sessions::reconcile(&state).map_err(|e| e.to_string())?;
+    if stale > 0 {
+        tracing::info!(stale, "marked sessions from the previous daemon as exited");
+    }
     console::spawn_session_end_listener();
     let server = tokio::spawn(server::serve(Arc::clone(&state), factory, first));
     let reason = stop_rx
@@ -173,6 +181,13 @@ async fn serve_until_stopped(state: Arc<State>, started: serde_json::Value) -> R
         .await
         .unwrap_or_else(|| "channel_closed".into());
     server.abort();
+    // Shells die with the daemon anyway (D3); ending them here records their exits.
+    let for_kill = Arc::clone(&state);
+    if let Err(e) =
+        tokio::task::spawn_blocking(move || for_kill.sessions.kill_all(SESSION_KILL_WAIT)).await
+    {
+        tracing::warn!(error = %e, "ending shells on shutdown failed");
+    }
     if let Err(e) = state.record(NewEvent::new(
         kinds::DAEMON_STOPPED,
         actors::AMIRI,
