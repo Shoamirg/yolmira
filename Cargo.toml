@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+# Spikes are standalone throwaway crates with their own lockfiles.
+exclude = ["spikes"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.94"
+publish = false
+
+# Versions pinned in docs/dependencies.md; Cargo.lock is committed.
+[workspace.dependencies]
+amiri-core = { path = "crates/amiri-core" }
+amiri-store = { path = "crates/amiri-store" }
+amiri-ipc = { path = "crates/amiri-ipc" }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Console",
+  "Win32_System_Environment",
+  "Win32_System_JobObjects",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Pipes",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+uuid = { version = "1.26.1", features = ["v4", "v7"] }
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+tracing-appender = "0.2.5"
+clap = { version = "4.6.7", features = ["derive"] }
+tempfile = "3.27.0"
+portable-pty = "0.9.0"

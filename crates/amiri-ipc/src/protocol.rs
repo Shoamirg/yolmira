@@ -1,0 +1,284 @@
+//! Daemon protocol: newline-delimited JSON-RPC 2.0 over a named pipe.
+//! The first request on every connection must be `hello` with the token.
+
+use amiri_core::{AmiriError, Event};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+pub const PROTOCOL_VERSION: u32 = 1;
+
+/// `amirid` exit codes (locale-neutral; the launcher interprets them).
+pub mod exit {
+    pub const OK: u32 = 0;
+    pub const USAGE: u32 = 2;
+    pub const ELEVATED: u32 = 3;
+    pub const ALREADY_RUNNING: u32 = 4;
+    pub const STARTUP_FAILED: u32 = 5;
+}
+
+/// JSON-RPC error codes.
+pub mod codes {
+    pub const PARSE_ERROR: i64 = -32700;
+    pub const INVALID_REQUEST: i64 = -32600;
+    pub const METHOD_NOT_FOUND: i64 = -32601;
+    pub const INVALID_PARAMS: i64 = -32602;
+    pub const AMIRI_ERROR: i64 = -32000;
+    pub const UNAUTHORIZED: i64 = -32001;
+}
+
+pub mod methods {
+    pub const HELLO: &str = "hello";
+    pub const DAEMON_STATUS: &str = "daemon.status";
+    pub const DAEMON_STOP: &str = "daemon.stop";
+    pub const EVENTS_LIST: &str = "events.list";
+    pub const EVENTS_SUBSCRIBE: &str = "events.subscribe";
+}
+
+/// Notification methods (daemon → client).
+pub mod notifications {
+    pub const EVENT: &str = "event";
+}
+
+/// Every method, and the event a state-changing one must record. Slice D's
+/// `every_mutating_method_emits_event` test walks this table.
+pub struct MethodSpec {
+    pub name: &'static str,
+    pub mutating: bool,
+    pub event: Option<&'static str>,
+}
+
+pub const METHODS: &[MethodSpec] = &[
+    MethodSpec {
+        name: methods::HELLO,
+        mutating: false,
+        event: None,
+    },
+    MethodSpec {
+        name: methods::DAEMON_STATUS,
+        mutating: false,
+        event: None,
+    },
+    MethodSpec {
+        name: methods::DAEMON_STOP,
+        mutating: true,
+        event: Some(amiri_core::event::kinds::DAEMON_STOPPING),
+    },
+    MethodSpec {
+        name: methods::EVENTS_LIST,
+        mutating: false,
+        event: None,
+    },
+    MethodSpec {
+        name: methods::EVENTS_SUBSCRIBE,
+        mutating: false,
+        event: None,
+    },
+];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Request {
+    pub jsonrpc: String,
+    pub id: u64,
+    pub method: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+impl Request {
+    pub fn new(id: u64, method: &str, params: Value) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id,
+            method: method.into(),
+            params,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RpcError {
+    pub code: i64,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Box<AmiriError>>,
+}
+
+impl RpcError {
+    pub fn new(code: i64, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    pub fn amiri(e: AmiriError) -> Self {
+        Self {
+            code: codes::AMIRI_ERROR,
+            message: e.what.clone(),
+            data: Some(Box::new(e)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Response {
+    pub jsonrpc: String,
+    /// `None` (serialized as `null`) only when the request couldn't be parsed.
+    pub id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<RpcError>,
+}
+
+impl Response {
+    pub fn ok(id: u64, result: Value) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id: Some(id),
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    pub fn err(id: u64, error: RpcError) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id: Some(id),
+            result: None,
+            error: Some(error),
+        }
+    }
+
+    /// Error for a request whose id couldn't be read (JSON-RPC: `"id": null`).
+    pub fn err_unidentified(error: RpcError) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id: None,
+            result: None,
+            error: Some(error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Notification {
+    pub jsonrpc: String,
+    pub method: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+impl Notification {
+    pub fn new(method: &str, params: Value) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            method: method.into(),
+            params,
+        }
+    }
+}
+
+/// What a client reads: a response (has `id`) or a notification.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Incoming {
+    Response(Response),
+    Notification(Notification),
+}
+
+impl Incoming {
+    /// Notifications carry `method`; responses don't.
+    pub fn parse(line: &str) -> serde_json::Result<Self> {
+        let v: Value = serde_json::from_str(line)?;
+        if v.get("method").is_some() {
+            serde_json::from_value(v).map(Self::Notification)
+        } else {
+            serde_json::from_value(v).map(Self::Response)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HelloParams {
+    pub token: String,
+    pub protocol_version: u32,
+    pub client: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HelloResult {
+    pub daemon_version: String,
+    pub protocol_version: u32,
+    pub pid: u32,
+    pub instance: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DaemonStatus {
+    pub pid: u32,
+    pub version: String,
+    pub started_at: String,
+    pub instance: Option<String>,
+    pub home: String,
+    pub clients: u32,
+    pub last_seq: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventsListParams {
+    #[serde(default)]
+    pub after: i64,
+    #[serde(default = "default_limit")]
+    pub limit: u32,
+    #[serde(default)]
+    pub kind_prefix: Option<String>,
+}
+
+fn default_limit() -> u32 {
+    1000
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventsSubscribeParams {
+    /// Replay events after this `seq` first; `None` = only new events.
+    #[serde(default)]
+    pub after: Option<i64>,
+}
+
+/// Params of the `event` notification.
+pub type EventNotification = Event;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incoming_tells_responses_from_notifications() {
+        let r = Incoming::parse(r#"{"jsonrpc":"2.0","id":3,"result":1}"#).unwrap();
+        assert!(matches!(
+            r,
+            Incoming::Response(Response { id: Some(3), .. })
+        ));
+        let n = Incoming::parse(r#"{"jsonrpc":"2.0","method":"event","params":{}}"#).unwrap();
+        assert!(matches!(n, Incoming::Notification(_)));
+        let e =
+            Incoming::parse(r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"x"}}"#)
+                .unwrap();
+        assert!(matches!(e, Incoming::Response(Response { id: None, .. })));
+        let json = serde_json::to_value(Response::err_unidentified(RpcError::new(
+            codes::PARSE_ERROR,
+            "x",
+        )))
+        .unwrap();
+        assert!(json["id"].is_null() && json.get("id").is_some(), "{json}");
+    }
+
+    #[test]
+    fn every_mutating_method_names_its_event() {
+        assert!(METHODS
+            .iter()
+            .filter(|m| m.mutating)
+            .all(|m| m.event.is_some()));
+    }
+}

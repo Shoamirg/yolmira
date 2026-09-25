@@ -1,0 +1,33 @@
+[package]
+name = "amiri"
+version = "0.1.0"
+description = "AMIRI binaries: the `amirid` daemon and the `amiri` CLI. One package so integration tests can launch both."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "amirid"
+path = "src/bin/amirid.rs"
+
+[[bin]]
+name = "amiri"
+path = "src/bin/amiri.rs"
+
+[dependencies]
+amiri-core.workspace = true
+amiri-store.workspace = true
+amiri-ipc.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+windows-sys.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+portable-pty.workspace = true

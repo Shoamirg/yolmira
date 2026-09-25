@@ -168,6 +168,8 @@ amiri/
 └── docs/                 this document, ADRs, dependency register
 ```
 
+**As built (Phase 1, Slice A):** `amirid` and `amiri-cli` ship from one package, `crates/amiri`, with two binaries (`src/bin/amirid.rs`, `src/bin/amiri.rs`) and the code in `daemon/` and `cli/` modules. Cargo exposes built binaries only to the integration tests of their own package, and the lifecycle tests launch both. Crates are added in the phase that needs them.
+
 Rule: `amiri-core` depends on nothing that does I/O. Everything provider-, transport-, or storage-specific sits behind a trait so it can be replaced without touching core (mission statement).
 
 ### 4.3 Key traits (sketch, not final)
