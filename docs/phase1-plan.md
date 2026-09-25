@@ -1,6 +1,6 @@
 # Phase 1 plan: Windows shell (daemon, terminal, UI)
 
-Status: **proposal, awaiting review.** No code until approved.
+Status: **approved 2026-09-25** with the changes in §6.
 Scope source: ARCHITECTURE §16.2 Phase 1. Exit criteria: *PTY integration suite green; UI closes and reopens while a local shell keeps running under `amirid`; the event log shows all actions.*
 
 ## 1. Slices
@@ -31,7 +31,8 @@ Exit tests (`crates/amirid/tests/lifecycle.rs`, `crates/amiri-store/tests/`):
 
 | Test | Proves |
 |---|---|
-| `daemon_survives_launcher_job_close` | The launcher runs inside a kill-on-close job that **forbids breakaway**, starts the daemon, and then the job is closed. The daemon is still reachable 5 s later. Run twice: the breakaway path and the fallback path (§2). |
+| `daemon_survives_launcher_job_close` | The launcher runs inside a kill-on-close job that **allows breakaway** (like the jobs terminals and IDEs use), starts the daemon, and then the job is closed. The daemon is still reachable 5 s later. |
+| `restrictive_job_reports_manual_start` | The launcher runs inside a job that **forbids breakaway**: `ensure_daemon()` starts nothing and returns the manual-start error, with a non-empty `why` and `next_steps`. |
 | `daemon_survives_launcher_console_close` | Launched from a ConPTY that is then closed, as in the S1 method: the daemon survives. |
 | `second_start_connects_to_existing` | `amiri daemon start` twice gives one daemon PID. The second call reports "already running" and exits 0. |
 | `concurrent_start_single_daemon` | 8 parallel `ensure_daemon()` calls produce exactly one daemon. The losers connect to it. |
@@ -126,7 +127,7 @@ Exit tests:
 - **Detached:**
   - `CreateProcessW` with `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB`, stdio to null, cwd `%LOCALAPPDATA%\AMIRI`, and the allowlisted environment (§9.6).
   - The daemon is not a child of the UI's console and not in the UI's job.
-  - If the launcher's job forbids breakaway, `CreateProcessW` fails with access denied, and the fallback asks WMI (`Win32_Process.Create`) to start the daemon, which creates it outside the caller's job. `[UNVERIFIED: the fallback; slice A's test decides it. If it fails, the UI tells the user to start the daemon with a shown command, and the gap becomes a risk.]`
+  - If the launcher's job forbids breakaway, `CreateProcessW` fails with access denied. AMIRI then **does not** try another way out of the job: starting processes through WMI to escape a job is a known malware technique that security tools flag, and it would worsen R12. `ensure_daemon()` returns a §14-shaped error, and the CLI and UI show it: the daemon can't be started from inside this restricted environment, plus the command to start it from a new terminal opened from the Start menu. This case is rare: launching from the Start menu or Explorer doesn't put the UI in a restrictive job. If it turns out to matter, the installer (Phase 10) adds a per-user on-demand scheduled task that starts the daemon.
 - **Single instance per Windows user:** a named mutex `Local\AMIRI-amirid-<SID>`, held for the daemon's lifetime, plus the pipe's `FILE_FLAG_FIRST_PIPE_INSTANCE`. A second `amirid` exits with a distinct exit code. Several logon sessions of the same user (RDP plus console) share the pipe name, and the pipe flag still keeps it to one daemon. Tested in slice A.
 - **Ctrl+C from the first commit (S1d):** clear the inherited ignore flag (`SetConsoleCtrlHandler(NULL, FALSE)`) and install AMIRI's handler (ignore Ctrl+C and Ctrl+Break, clean shutdown on close, logoff and shutdown). A detached daemon has no console, so the handler only fires in `--foreground` dev mode. The flag clearing matters in both modes, because children inherit it.
 - **Logoff and shutdown when detached:** without a console, Windows sends no console control events. The daemon creates a hidden top-level window to receive `WM_QUERYENDSESSION`/`WM_ENDSESSION`, and shuts down cleanly (flush the log, mark sessions). `[UNVERIFIED; a manual check at the phase exit (log off and on, and the event log shows a clean shutdown). An automated logoff test would need a second account.]`
@@ -148,8 +149,8 @@ Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); AMIRI
 
 **Locale.** All assertions use locale-neutral values (numbers, exit codes, markers the shell computes, files); never tool labels.
 - **ru-RU (CP866):** the whole suite runs on this machine, which is ru-RU with CP866 natively. Two tests exist only for locale: `oem_codepage_output_decoded` (a `cmd` child writes Cyrillic in CP866; the UI and CLI show it correctly) and `non_ascii_paths` (project, cwd and DB path under `…\Проект`).
-- **en-US:** needs a second environment (see question 1).
-- **uz-UZ:** not covered in Phase 1 without a VM or a second account. It is recorded as a gap in the phase findings instead of being claimed.
+- **en-US:** the GitHub-hosted Windows runner (§6).
+- **uz-UZ:** a Phase 1 gap, recorded in the phase findings and not claimed. Covered in Phase 10's Windows Sandbox clean-install test.
 
 ## 5. New dependencies
 
@@ -177,10 +178,13 @@ Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); AMIRI
 | `@xterm/xterm` / `@xterm/addon-fit` | 6.0.0 / 0.11.0 | C | |
 | `zustand` | 5.0.15 | C | |
 | `tauri-driver` (tool) | 2.0.6 | C | `cargo install --locked` for the E2E tests only |
-| `msedgedriver` (tool) | must match WebView2 (153.0.4234.48 now) | C | A download (question 2) |
+| `msedgedriver` (tool) | must match WebView2 (153.0.4234.48 now) | C | Downloaded from Microsoft; version and SHA-256 recorded |
 
-## 6. Questions for approval
+Downloads for slice C are pinned, with SHA-256 recorded. WebView2 updates itself, so the E2E harness first compares the installed WebView2 version with `msedgedriver --version`. On a mismatch it fails with *"WebView2 is now X, msedgedriver is Y: update the driver"*, not with a WebDriver error.
 
-1. **CI.** The repo has no remote, and §15 expects a Windows CI runner. Options: (a) a private GitHub repo with an Actions `windows-latest` runner, which also gives the en-US locale pass; or (b) local runs only, recorded per slice like the spikes, with en-US left as a gap. (a) means pushing the repo to GitHub, which is your call.
-2. **Downloads for slice C:** the npm packages above, `tauri-driver` from crates.io, and `msedgedriver` from Microsoft, matching the WebView2 version. Slice A needs only crates.
-3. **The WMI fallback** (§2) is the one design point that may not work. If slice A's test shows it doesn't, the UI shows a manual-start instruction when launched from inside a restrictive job. Is that acceptable?
+## 6. Review decisions (2026-09-25)
+
+- **Approved,** with the WMI fallback dropped (§2).
+- **CI:** a private GitHub repo with a GitHub-hosted `windows-latest` runner, which gives the en-US pass; local runs cover ru-RU; no self-hosted runner. Before the first push: a `gitleaks` scan of the full history, and a list of personal details in the findings files (username, machine name, paths) for the user to review.
+- **Slice C downloads:** approved, pinned, with checksums recorded and the version-mismatch check above.
+- **uz-UZ:** a Phase 1 gap. It joins the Phase 10 clean-install test in Windows Sandbox.

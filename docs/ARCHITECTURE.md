@@ -701,7 +701,8 @@ Scoped approvals UI; redaction review; `cargo deny`/audit gates; IPC token rotat
 
 **Phase 10 — Packaging**
 Tauri bundler, NSIS per-user installer; first-run diagnostics; config migration; logging; optional updater; code signing `[OPEN: certificate source]`.
-Exit: clean Windows Sandbox install test passes.
+Also: if starting the daemon from inside a restrictive job turns out to matter (Phase 1 only reports it, never escapes the job), the installer adds a per-user on-demand scheduled task that starts `amirid`.
+Exit: clean Windows Sandbox install test passes, **including a pass under the uz-UZ locale** (a Phase 1 gap).
 
 ### 16.3 Trace: "Continue AI-TV." (requirement 29)
 
