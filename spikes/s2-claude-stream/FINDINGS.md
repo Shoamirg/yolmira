@@ -1,6 +1,7 @@
 # Spike S2 — Claude Code stream-json protocol: findings
 
 - Date: 2026-09-24. Claude Code 2.1.281 (native `claude.exe`), model alias `haiku` → `claude-haiku-4-5-20251001`.
+- Version drift: on 2026-09-25 the installed CLI had auto-updated to **2.1.282**. These findings are for 2.1.281 only; 2.1.282 has not been re-tested (ARCHITECTURE risk R4).
 - Raw evidence: `findings.json` (scenarios 1–6, clean commit `7d358e3`) and `findings-s7.json` (scenario 7, clean commit `6e63f7b`). Sanitized streams in `fixtures/*.jsonl` (every line in and out, with ms timestamps; local paths replaced by `<SCRATCH>`/`<HOME>`). Fixtures were re-sanitized from the raw copies at `c49fe9a` without re-running.
 - Limits held (decisions.md): non-admin session, `--safe-mode` (no user hooks, plugins, rules or MCP), minimal `--tools`, `--max-turns` ≤ 4, `--max-budget-usd 0.15` per process, $1 total cap, scratch folder under `%TEMP%` (not the repo), **allowlisted environment** (registry PATH + standard Windows variables only). **Total spend: $0.089.**
 - Side effect: the runs left session transcripts under `~/.claude/projects/C--Users-User-AppData-Local-Temp-amiri-s2-*`. Not deleted (the user's session store); safe to remove by hand.
