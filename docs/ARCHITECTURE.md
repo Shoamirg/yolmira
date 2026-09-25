@@ -489,7 +489,7 @@ The spec's YAML is kept, extended with `known_host_policy` (`strict` default), `
 One SSH connection per machine, multiplexed into channels (exec, PTY, SFTP). Keepalives, with exponential-backoff reconnect. Connection state (`CONNECTED/DISCONNECTED/RECONNECTING/UNKNOWN`) is tracked **separately** from process state (`PROCESS RUNNING/PROCESS EXITED/UNKNOWN`). The UI shows both, plus "last observed at", so a disconnected machine shows "last seen RUNNING 14:02, current UNKNOWN", never a bare RUNNING.
 
 ### 10.5 Persistent remote execution
-- **Remote PTY sessions:** created inside `tmux new-session -d -s amiri-<session>`; AMIRI attaches through an SSH PTY channel. On reconnect it runs `tmux has-session` and reattaches. Scrollback survives.
+- **Remote PTY sessions:** created inside `tmux new-session -d -s amiri-<session>` with the status bar off (`tmux set -t amiri-<session> status off`) so the pane size equals the PTY size (S4); AMIRI attaches through an SSH PTY channel. On reconnect it runs `tmux has-session` and reattaches. Scrollback survives.
 - **Remote structured agents** (stdio JSON over a flaky link): launched inside tmux under a small wrapper script. The script reads stdin from a FIFO and appends stdout to `~/.amiri/sessions/<id>/out.jsonl`, writing the exit code to `exit` on completion. AMIRI writes to the FIFO and tails the journal by byte offset. On reconnect it resumes from its last stored offset, so no events are lost or duplicated. No binary is uploaded in v1. Future option: a static `amiri-relay` binary pushed over SFTP, as AgentMux does for its Windows daemon.
 - If tmux is missing, the machine is marked `supports_detached: false`. Long tasks there require explicit acceptance that a disconnect kills them.
 

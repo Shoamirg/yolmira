@@ -23,9 +23,9 @@
 ## Answers for the SSH transport (§10)
 
 1. **russh works on Windows for everything the §10 transport needs:** host-key pinning with a hard fail on change, Windows agent pipe auth (resolves the `[UNVERIFIED]` in §10.2), key files, PTY, resize, exec with exit codes, and SFTP.
-2. **Resize: the PTY size belongs to the tmux client, not the pane.** Whatever runs inside tmux sees the client size minus status lines (and minus any splits). AMIRI must not expect the terminal it renders to match what the remote program sees. Options: turn the status bar off in AMIRI-owned sessions (`tmux set -t <s> status off`), or render tmux's status line as part of the terminal (it is part of what the client draws). `[DECISION proposed]`: status off for AMIRI-created sessions, so sizes match exactly.
+2. **Resize: the PTY size belongs to the tmux client, not the pane.** Whatever runs inside tmux sees the client size minus status lines (and minus any splits). With the status bar on, the terminal AMIRI renders is one row taller than what the remote program sees. `[DECISION]` (decisions.md, 2026-09-25): AMIRI turns the status bar off in the sessions it creates (`tmux set -t <s> status off`), so the sizes match exactly.
 3. **Reconnect after a network drop works as §10 assumes:** tmux keeps the session and state, and a fresh SSH session reattaches in about 0.2 s on localhost.
-4. `sftp.write()` in `russh-sftp` 3.0 opens without `CREATE` and fails on a new file. Use `sftp.create()` to write new files.
+4. `sftp.write()` in `russh-sftp` 3.0 opens without `CREATE` and fails on a new file. Use `sftp.create()` to write new files. Recorded in `docs/dependencies.md` as pinned-version behaviour, to recheck on upgrade.
 5. Build: `default-features = false, features = ["ring", "flate2", "rsa"]` avoids the NASM dependency of `aws-lc-rs` on Windows.
 
 ## Teardown
@@ -34,7 +34,7 @@
 
 ## Not covered
 
-- **Agent forwarding** (the other half of the `[UNVERIFIED]` tag on `russh` in §5.1). Not tested.
+- **Agent forwarding.** Not tested. It is the open half of the `[UNVERIFIED]` tag on `russh` in §5.1; the agent-pipe half (§5.1 and §10.2) is resolved above.
 - `~/.ssh/config` handling, `ProxyJump`/`ProxyCommand` (the `ssh.exe` fallback transport).
 - Real network conditions: latency, packet loss, NAT timeouts, keepalive tuning. Everything ran over localhost.
 - A non-WSL server (plain Linux or macOS host) and other host-key types (only ed25519).

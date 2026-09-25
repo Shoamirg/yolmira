@@ -26,6 +26,7 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 | 2026-09-24 | S4 image | **Approved:** official Ubuntu WSL image, SHA-256 **verified** against Ubuntu's published `SHA256SUMS` (and its GPG signature if published). Distro `amiri-s4-sshd`, key-only auth, `127.0.0.1` only, non-default port. Removed with `wsl --unregister` at the end, teardown recorded. | — |
 | 2026-09-24 | Destructive git | No `git checkout -- <path>`, `git reset`, `git clean` or other change-discarding git command in this repo without asking the user first (the same rule AMIRI's Policy Engine will enforce). | — |
 | 2026-09-24 | Codex | User installs and logs in to Codex themselves; S3 runs last and records whether Codex works natively on Windows or needs WSL. | — |
+| 2026-09-25 | tmux status bar (S4) | **Approved:** AMIRI turns the status bar off in the tmux sessions it creates (`tmux set -t <s> status off`), so the pane size equals the PTY size AMIRI renders. Rendering tmux's status line instead is not pursued. | ARCHITECTURE §10.5; `spikes/s4-russh/FINDINGS.md` |
 
 ## Still open
 
