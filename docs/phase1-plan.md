@@ -152,6 +152,11 @@ Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); AMIRI
 - **en-US:** the GitHub-hosted Windows runner (§6).
 - **uz-UZ:** a Phase 1 gap, recorded in the phase findings and not claimed. Covered in Phase 10's Windows Sandbox clean-install test.
 
+**Manual checks at the phase exit** (no automated test possible on one account; results recorded in the Phase 1 findings):
+1. **Pipe-owner rejection (H1)** with a second Windows account (the same one serves the uz-UZ check). While the first user's daemon is stopped, the second account creates `\\.\pipe\amiri-<first user's SID>` (a small PowerShell `NamedPipeServerStream` with an Everyone DACL). The first user runs `amiri daemon status` and `amiri daemon start`. Expected: both fail with "the daemon's pipe is owned by another process", **no token is sent** (the second account's server logs no bytes received), and no second daemon starts.
+2. **Logoff/shutdown when detached:** start the daemon, sign out, sign back in. Expected: the event log shows `daemon.stopped {reason: session_end}`.
+3. **Detach tests** (`daemon_survives_launcher_*`, `second_start_*`, `concurrent_start_*`): not run on CI (the runner's job forbids breakaway); the local `scripts/test.ps1` run on the exit commit covers them.
+
 ## 5. New dependencies
 
 `Cargo.lock` and `app/package-lock.json` are committed. Each dependency gets a row in `docs/dependencies.md` in the slice that first uses it, with the locked version. These versions are current stable as of 2026-09-25:

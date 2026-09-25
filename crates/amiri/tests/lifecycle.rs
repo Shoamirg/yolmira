@@ -170,7 +170,7 @@ fn ctrl_c_handling_s1d() {
         env.running_pid().is_some()
     });
 
-    pty.send(b"");
+    pty.send(b"\x03"); // Ctrl+C
     std::thread::sleep(Duration::from_secs(2));
     assert!(
         matches!(pty.child.try_wait(), Ok(None)),

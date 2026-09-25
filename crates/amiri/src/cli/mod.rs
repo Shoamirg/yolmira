@@ -1,6 +1,7 @@
 //! `amiri`: the command-line client. Every command talks to the daemon over its pipe.
 
 mod commands;
+pub mod doctor;
 mod output;
 
 use clap::{Parser, Subcommand};
@@ -30,6 +31,8 @@ pub enum Command {
         #[command(subcommand)]
         action: DaemonAction,
     },
+    /// Check this machine for problems that break AMIRI or other tools (no daemon needed).
+    Doctor,
     /// Show the event log.
     Events {
         /// Only events with seq greater than this.
@@ -60,7 +63,8 @@ pub enum DaemonAction {
     Status,
 }
 
-/// Exit codes: 0 ok, 1 error, 2 invalid arguments (clap), 10 daemon not running (status/stop).
+/// Exit codes: 0 ok, 1 error (for `doctor`: a check failed), 2 invalid arguments (clap),
+/// 10 daemon not running (status/stop).
 pub mod exit {
     pub const OK: u8 = 0;
     pub const ERROR: u8 = 1;

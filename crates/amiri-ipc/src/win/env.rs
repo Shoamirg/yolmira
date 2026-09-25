@@ -39,34 +39,91 @@ const USER_ENV: &str = "Environment";
 const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_MORE_DATA: u32 = 234;
 
+/// Raw inputs the child environment is built from. [`EnvSource::system`] reads this
+/// machine; tests build one by hand to simulate damaged machines (missing `ComSpec`,
+/// PATH without Windows PowerShell), so the handling stays tested on healthy ones.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnvSource {
+    /// `PASS_THROUGH` values from the current process.
+    pub process: Vec<(String, String)>,
+    /// `GetSystemWindowsDirectoryW`.
+    pub windows_dir: Option<String>,
+    /// Raw (unexpanded) machine environment values: `ComSpec`, `Path`.
+    pub machine: Vec<(String, String)>,
+    /// Raw (unexpanded) user environment values: `Path`, `TEMP`, `TMP`.
+    pub user: Vec<(String, String)>,
+}
+
+impl EnvSource {
+    pub fn system() -> Self {
+        let process = PASS_THROUGH
+            .iter()
+            .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+            .collect();
+        let windows_dir = windows_dir()
+            .map_err(|e| tracing::warn!(error = %e, "GetSystemWindowsDirectoryW failed; SystemRoot omitted"))
+            .ok();
+        let read = |root, key, names: &[&str]| -> Vec<(String, String)> {
+            names
+                .iter()
+                .filter_map(|n| read_raw(root, key, n).map(|v| (n.to_string(), v)))
+                .collect()
+        };
+        Self {
+            process,
+            windows_dir,
+            machine: read(HKEY_LOCAL_MACHINE, MACHINE_ENV, &["ComSpec", "Path"]),
+            user: read(HKEY_CURRENT_USER, USER_ENV, &["Path", "TEMP", "TMP"]),
+        }
+    }
+
+    pub fn machine_value(&self, name: &str) -> Option<&str> {
+        lookup(&self.machine, name)
+    }
+
+    fn user_value(&self, name: &str) -> Option<&str> {
+        lookup(&self.user, name)
+    }
+}
+
+fn lookup<'a>(vars: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    vars.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
 /// The environment every child of `amirid` gets (and `amirid` itself when launched).
 pub fn child_env() -> Vec<(String, String)> {
-    let mut vars: Vec<(String, String)> = PASS_THROUGH
-        .iter()
-        .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
-        .collect();
-    let root = match windows_dir() {
-        Ok(dir) => {
-            vars.push(("SystemRoot".into(), dir.clone()));
-            vars.push(("windir".into(), dir.clone()));
-            Some(dir)
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "GetSystemWindowsDirectoryW failed; SystemRoot omitted");
-            None
-        }
-    };
-    // Some machines lack the registry value (this dev machine does); the system shell
+    build_child_env(&EnvSource::system())
+}
+
+/// Pure: the allowlisted environment for the given inputs.
+pub fn build_child_env(src: &EnvSource) -> Vec<(String, String)> {
+    let mut vars = src.process.clone();
+    if let Some(dir) = &src.windows_dir {
+        vars.push(("SystemRoot".into(), dir.clone()));
+        vars.push(("windir".into(), dir.clone()));
+    }
+    // Some machines lack the registry value (this dev machine did); the system shell
     // under the Windows directory is the documented default.
-    let comspec = read_expanded(HKEY_LOCAL_MACHINE, MACHINE_ENV, "ComSpec", &vars)
-        .or_else(|| root.map(|r| format!(r"{r}\System32\cmd.exe")));
+    let comspec = src
+        .machine_value("ComSpec")
+        .map(|raw| expand_with(raw, &vars))
+        .or_else(|| src.windows_dir.as_deref().map(system_cmd));
     if let Some(c) = comspec {
         vars.push(("ComSpec".into(), c));
     }
-    vars.push(("PATH".into(), path_from(&vars)));
+    let path = [src.machine_value("Path"), src.user_value("Path")]
+        .into_iter()
+        .flatten()
+        .map(|raw| expand_with(raw, &vars).trim_matches(';').to_string())
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(";");
+    vars.push(("PATH".into(), path));
     for name in ["TEMP", "TMP"] {
-        if let Some(v) = read_expanded(HKEY_CURRENT_USER, USER_ENV, name, &vars) {
-            vars.push((name.into(), v));
+        if let Some(v) = src.user_value(name) {
+            vars.push((name.into(), expand_with(v, &vars)));
         }
     }
     vars
@@ -75,36 +132,30 @@ pub fn child_env() -> Vec<(String, String)> {
 /// Machine PATH + user PATH from the registry, expanded against the allowlisted
 /// variables. Not the caller's PATH.
 pub fn registry_path() -> String {
-    let base: Vec<(String, String)> = child_env()
+    build_child_env(&EnvSource::system())
         .into_iter()
-        .filter(|(k, _)| k != "PATH")
-        .collect();
-    path_from(&base)
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v)
+        .unwrap_or_default()
 }
 
-fn path_from(vars: &[(String, String)]) -> String {
-    [
-        (HKEY_LOCAL_MACHINE, MACHINE_ENV),
-        (HKEY_CURRENT_USER, USER_ENV),
-    ]
-    .into_iter()
-    .filter_map(|(root, key)| read_expanded(root, key, "Path", vars))
-    .map(|p| p.trim_matches(';').to_string())
-    .filter(|p| !p.is_empty())
-    .collect::<Vec<_>>()
-    .join(";")
+/// `cmd.exe` under the Windows directory: used when `ComSpec` is missing.
+pub fn system_cmd(windows_dir: &str) -> String {
+    format!(r"{windows_dir}\System32\cmd.exe")
 }
 
-/// A registry value expanded against `vars`; `None` if absent. Read failures are logged,
-/// not silently treated as absent.
-fn read_expanded(root: HKEY, key: &str, name: &str, vars: &[(String, String)]) -> Option<String> {
-    match registry_value(root, key, name) {
-        Ok(v) => v.map(|raw| expand_with(&raw, vars)),
-        Err(e) => {
-            tracing::warn!(key, name, error = %e, "registry read failed; value omitted from child environment");
-            None
-        }
-    }
+/// Windows PowerShell 5.1 by full path. Spawners use this, never a bare `powershell`
+/// (S0: some machines' PATH lacks it).
+pub fn windows_powershell(windows_dir: &str) -> String {
+    format!(r"{windows_dir}\System32\WindowsPowerShell\v1.0\powershell.exe")
+}
+
+/// A registry value, unexpanded; `None` if absent. Read failures are logged.
+fn read_raw(root: HKEY, key: &str, name: &str) -> Option<String> {
+    registry_value(root, key, name)
+        .map_err(|e| tracing::warn!(key, name, error = %e, "registry read failed; value omitted"))
+        .ok()
+        .flatten()
 }
 
 /// `%NAME%` expansion using only `vars` (case-insensitive); unknown names stay as written.
@@ -226,6 +277,87 @@ mod tests {
             comspec,
             format!(r"{}\system32\cmd.exe", root.to_lowercase())
         );
+    }
+
+    /// A healthy machine as seen through `EnvSource` (values are raw, like the registry's).
+    fn healthy() -> EnvSource {
+        EnvSource {
+            process: vec![("USERPROFILE".into(), r"C:\Users\u".into())],
+            windows_dir: Some(r"C:\Windows".into()),
+            machine: vec![
+                ("ComSpec".into(), r"%SystemRoot%\system32\cmd.exe".into()),
+                (
+                    "Path".into(),
+                    r"%SystemRoot%\system32;%SystemRoot%\System32\WindowsPowerShell\v1.0\".into(),
+                ),
+            ],
+            user: vec![
+                ("Path".into(), r"%USERPROFILE%\bin".into()),
+                ("TEMP".into(), r"%USERPROFILE%\AppData\Local\Temp".into()),
+            ],
+        }
+    }
+
+    fn get(env: &[(String, String)], k: &str) -> Option<String> {
+        env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn healthy_machine_values_are_expanded_against_the_allowlist() {
+        let env = build_child_env(&healthy());
+        assert_eq!(
+            get(&env, "ComSpec").as_deref(),
+            Some(r"C:\Windows\system32\cmd.exe")
+        );
+        assert_eq!(
+            get(&env, "PATH").as_deref(),
+            Some(r"C:\Windows\system32;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Users\u\bin")
+        );
+        assert_eq!(
+            get(&env, "TEMP").as_deref(),
+            Some(r"C:\Users\u\AppData\Local\Temp")
+        );
+    }
+
+    #[test]
+    fn missing_comspec_falls_back_to_the_system_shell() {
+        let mut src = healthy();
+        src.machine.retain(|(k, _)| k != "ComSpec");
+        let env = build_child_env(&src);
+        assert_eq!(
+            get(&env, "ComSpec").as_deref(),
+            Some(r"C:\Windows\System32\cmd.exe")
+        );
+    }
+
+    #[test]
+    fn path_without_windows_powershell_is_passed_as_is_and_powershell_resolves_by_full_path() {
+        let mut src = healthy();
+        src.machine = vec![("Path".into(), r"%SystemRoot%\system32".into())];
+        let env = build_child_env(&src);
+        let path = get(&env, "PATH").unwrap();
+        assert!(
+            !path.to_lowercase().contains("windowspowershell"),
+            "AMIRI doesn't edit PATH: {path}"
+        );
+        // Spawners don't depend on PATH for PowerShell.
+        assert_eq!(
+            windows_powershell(src.windows_dir.as_deref().unwrap()),
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        );
+    }
+
+    #[test]
+    fn windows_powershell_exists_on_this_machine() {
+        let ps = windows_powershell(&windows_dir().unwrap());
+        assert!(std::path::Path::new(&ps).is_file(), "{ps}");
+    }
+
+    #[test]
+    fn nothing_from_windows_means_no_system_variables_but_no_panic() {
+        let env = build_child_env(&EnvSource::default());
+        assert_eq!(get(&env, "ComSpec"), None);
+        assert_eq!(get(&env, "PATH").as_deref(), Some(""));
     }
 
     #[test]

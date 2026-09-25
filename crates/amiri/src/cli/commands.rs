@@ -43,6 +43,7 @@ pub async fn run(cli: Cli) -> u8 {
             kind,
             follow,
         } => events(&out, instance, after, limit, kind, follow).await,
+        Command::Doctor => Ok(doctor(&out)),
     };
     match result {
         Ok(code) => code,
@@ -50,6 +51,31 @@ pub async fn run(cli: Cli) -> u8 {
             out.error(&e);
             exit::ERROR
         }
+    }
+}
+
+fn doctor(out: &Out) -> u8 {
+    use super::doctor::{checks, Status};
+    let results = checks(&amiri_ipc::win::env::EnvSource::system());
+    if out.json {
+        out.value(String::new, json!({ "checks": results }));
+    } else {
+        for c in &results {
+            let tag = match c.status {
+                Status::Ok => "ok  ",
+                Status::Warn => "WARN",
+                Status::Fail => "FAIL",
+            };
+            out.value(|| format!("{tag} {}: {}", c.name, c.detail), json!(null));
+            for step in &c.next_steps {
+                out.value(|| format!("     next: {step}"), json!(null));
+            }
+        }
+    }
+    if results.iter().any(|c| c.status == Status::Fail) {
+        exit::ERROR
+    } else {
+        exit::OK
     }
 }
 
