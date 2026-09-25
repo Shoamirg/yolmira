@@ -248,7 +248,7 @@ React + TypeScript + Vite; `@xterm/xterm` + fit/web-links addons (the de facto b
 | Layer | What AMIRI controls | Mechanism |
 |---|---|---|
 | **A. Agent configuration** | What the agent is allowed to try | Per-session generated config: Claude `--allowedTools`/`--disallowedTools`/permission mode and scoped `--mcp-config`; Codex `approvalPolicy` + `sandbox` on `thread/start` |
-| **B. Agent permission requests** | Actions the agent asks about | Claude `--permission-prompt-tool mcp__amiri__approve`; Codex `requestApproval` server requests → both go to the Policy Engine → ALLOW / ASK (UI prompt) / DENY |
+| **B. Agent permission requests** | Actions the agent asks about | Claude `--permission-prompt-tool stdio` (`control_request {subtype: can_use_tool}` on the session's own pipe, S2); Codex `requestApproval` server requests → both go to the Policy Engine → ALLOW / ASK (UI prompt) / DENY |
 | **C. AMIRI's own actions** | Everything AMIRI executes (git, SSH, file writes, vault writes, tests) | Policy Engine check before every action; recorded as events |
 
 **Cannot enforce:** anything an agent does within permissions it already holds. An agent granted unrestricted shell can do whatever the OS user can. AMIRI is not a sandbox. For risky work, the project profile should prefer a WSL, container, or remote execution target. The UI states this when a task is granted broad shell access. `--dangerously-skip-permissions` and equivalents are **DENY by default** and can be enabled only per project with an explicit, logged user decision.
@@ -470,14 +470,15 @@ pub enum AgentEvent {                       // normalized across providers
 Every raw provider line is also captured to `artifacts/<task>/<session>.jsonl` before parsing. When a CLI changes its format, the raw capture shows what happened and becomes a new test fixture.
 
 ### 9.2 Claude Code adapter
-- Spawn: `claude -p --input-format stream-json --output-format stream-json --verbose --session-id <uuid> --mcp-config <generated.json> --permission-prompt-tool mcp__amiri__approve [--allowedTools …]` in the target cwd, through the task's transport `[VERIFIED by S2, Claude Code 2.1.281]`. S2 established:
+- Spawn: `claude -p --input-format stream-json --output-format stream-json --verbose --session-id <uuid> --mcp-config <generated.json> --permission-prompt-tool stdio [--allowedTools …]` (no `--safe-mode`, see below) in the target cwd, through the task's transport `[VERIFIED by S2, Claude Code 2.1.281]`. S2 established:
   - **Stdin schema, multi-turn and resume** work as planned. `system/init` arrives only after the first user message, so the adapter doesn't wait for it.
   - **Interrupt:** `control_request {subtype: interrupt}`. The turn ends as `error_during_execution` / `aborted_streaming`, and the session continues. Such turns report `total_cost_usd: 0`, so cost comes from per-message `usage` or is marked unknown.
   - **Stdin EOF is not a stop signal.** Mid-turn, `claude` finishes the turn (tools included) before exiting. Stop with interrupt or the job (§9.6); closing stdin only ends an idle session cleanly.
-  - **Permission requests** round-trip both over stdio (`--permission-prompt-tool stdio`, `control_request {subtype: can_use_tool}`) and through an MCP tool (the MCP route fails closed under `--safe-mode`, which disables `--mcp-config`). **Which route AMIRI uses is not decided yet** (S2 proposes stdio). It must be decided before Phase 2; the flags above show the MCP route until then.
+  - **Permission requests** round-trip both over stdio (`--permission-prompt-tool stdio`, `control_request {subtype: can_use_tool}`) and through an MCP tool. `[DECISION]` (decisions.md, 2026-09-25): **AMIRI uses stdio.** Permission decisions travel on the session's own pipe, don't depend on AMIRI's MCP server being up, and S2 showed allow and deny both work (a deny's message reaches the model; the `result` lists it in `permission_denials`).
+  - **No `--safe-mode` for orchestrated sessions** `[DECISION]` (decisions.md, 2026-09-25). It disables `--mcp-config`, which removes AMIRI's own MCP tools (`task.report_done` and the rest, D6) that the orchestrator depends on. Consequence: the user's Claude Code hooks, plugins and settings can run inside orchestrated sessions (risk R13, §16.4).
   - `init.capabilities` lists protocol features. The adapter gates on these rather than on `claude_code_version`.
 - Resume: `--resume <session-id>`. The PTY channel opens `claude --resume <id>` in ConPTY after the structured process has exited (session lock).
-- Some sources report that Claude Code hooks do not run in `-p` mode and that `--append-system-prompt` is not preserved on resume `[README-level, UNVERIFIED, not load-bearing: S2 ran with --safe-mode, so hooks were not tested]`. The adapter must not depend on hooks for enforcement; role instructions are re-sent in each handoff packet.
+- Some sources report that Claude Code hooks do not run in `-p` mode and that `--append-system-prompt` is not preserved on resume `[README-level, UNVERIFIED: S2 ran with --safe-mode, so hooks were not tested; risk R13, §16.4]`. The adapter must not depend on hooks for enforcement; role instructions are re-sent in each handoff packet.
 - AMIRI does not reimplement Claude Code features (subagents, skills, compaction). It configures and observes them.
 
 ### 9.3 Codex adapter
@@ -727,20 +728,18 @@ What the design still rests on without proof, after S0–S2, S4 and S5. Each ris
 | R1 | **Codex, entirely untested.** `app-server` protocol (lifecycle, interrupt, steer, approval requests); stop behaviour (signals reportedly leave children running); job containment of its process tree; its usage-limit signal; `CODEX_HOME` profiles; native Windows vs WSL. | Phase 4; the Agent trait (R2); Claude→Codex failover (§8.4) | S3, a hard gate at the start of Phase 4 |
 | R2 | **Agent trait shaped by one provider.** Only Claude has been tested. | Every adapter, the orchestrator (Phase 5) | Trait provisional (§9.1); S3 may change it; contract tests show any change |
 | R3 | **Claude's limit-hit event never observed.** S2 only saw `status: "allowed"`. | Usage-limit pause and automatic failover (§8.4) | First real limit captured from raw stream logs during normal use; never provoked. Until then `provider_failover: ALLOW` acts as ASK |
-| R4 | **Claude CLI format drift.** Tested on 2.1.281 only; the stdin schema is under-documented upstream. | Claude adapter (Phase 2) | Raw capture of every line (§9.1), fixtures from S2, gating on `init.capabilities`, a live contract test per supported version |
+| R4 | **Claude CLI format drift.** Tested on 2.1.281 only; the stdin schema is under-documented upstream. Claude Code **updates itself**, so the version can change under AMIRI without anyone noticing. | Claude adapter (Phase 2) | Raw capture of every line (§9.1), fixtures from S2, gating on `init.capabilities`, a live contract test per supported version. The CLI version is recorded in every session's events, and `amiri doctor` warns when the installed version is outside the tested range |
 | R5 | **Claude account profiles.** Per-profile config directory mechanism not tested. | Account profiles per project (§6.4) | Phase 2 check before profiles ship |
 | R6 | **Claude under WSL and the real `claude` process tree under the job.** S2 ran `claude` natively; S1b/S1c proved the job mechanism with stand-in processes. | WSL execution targets; crash containment (§9.6) | Phase 1 process-manager tests (job vs real `claude` tree); Phase 2 WSL check |
 | R7 | **ConPTY beyond `cmd.exe`.** `pwsh` 7 and `wsl.exe` as PTY children, a 1-hour soak with output flood, and `wsl --shutdown` while attached were not run. | Phase 1 local terminal | Phase 1 PTY integration suite (§15) |
 | R8 | **Real networks.** S4 ran over localhost: no latency, loss, NAT timeouts or keepalive tuning; one server type (Ubuntu in WSL) and one host-key type (ed25519). | Connection manager and reconnect (§10.4), remote agents | Phase 3 SSH suite, including a real remote host |
 | R9 | **SSH agent forwarding and `~/.ssh/config`.** Forwarding untested; the `ssh.exe` fallback for `ProxyJump`/`ProxyCommand` untested. | Hosts that need forwarding or jump hosts (§10.6) | Phase 3 |
-| R10 | **`rmcp`** version and stdio server support. | AMIRI's MCP server (D6): permission tool if the MCP route is chosen (Phase 2), task tools (Phase 5) | Pin and test at first use |
+| R10 | **`rmcp`** version and stdio server support. | AMIRI's MCP server (D6): task tools (Phase 5), vault tools (Phase 6). Not permissions, which go over stdio | Pin and test at first use |
 | R11 | **Codex skills format** compatibility with `SKILL.md`. | Skills shared across providers (§12) | Phase 7 |
+| R12 | **Unsigned `AMIRI.exe` that spawns shells and agents** may be flagged by SmartScreen or Defender. | Installation and first run (Phase 10) | Phase 10, together with the code-signing decision (§17 Q9) |
+| R13 | **User's Claude Code config inside orchestrated sessions.** Without `--safe-mode`, the user's hooks, plugins and settings load in AMIRI-launched sessions. Whether hooks run in `-p` mode is itself unverified. | Predictable agent behaviour and policy (§6); AMIRI never relies on hooks for enforcement | Phase 2: test which settings load, and limit `--setting-sources` (S2's suggested alternative) if they interfere |
 
-**Decisions needed before Phase 2** (not risks, but open):
-- Claude permission route: stdio control protocol (S2's proposal) or an MCP tool (current §6.2/§9.2 text).
-- `--safe-mode` as the default for AMIRI-launched Claude agents (S2's proposal; it also disables `--mcp-config`).
-
-Not load-bearing, left unverified: the Obsidian Local REST API serving MCP (§2), and Claude hooks in `-p` mode (§9.2). The design doesn't use either.
+Not load-bearing, left unverified: the Obsidian Local REST API serving MCP (§2). The design doesn't use it.
 
 ---
 
