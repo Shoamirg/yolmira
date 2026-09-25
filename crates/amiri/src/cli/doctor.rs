@@ -38,11 +38,19 @@ fn system_vars(src: &EnvSource) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Fix commands. They write the registry value directly as REG_EXPAND_SZ and keep
+/// `%...%` entries unexpanded: reading PATH through .NET expands them, and writing it
+/// back would store fixed paths and change the value type. A backup comes first.
+const BACKUP: &str = r#"In PowerShell run as administrator, first back up: reg export "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "$HOME\env-backup.reg" /y"#;
+const COMSPEC_FIX: &str = r#"Then: New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name ComSpec -Value '%SystemRoot%\system32\cmd.exe' -PropertyType ExpandString -Force"#;
+const PATH_FIX: &str = r#"Then: $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'; $raw = (Get-Item $key).GetValue('Path', '', 'DoNotExpandEnvironmentNames'); if ($raw -notmatch 'WindowsPowerShell\\v1\.0') { New-ItemProperty -Path $key -Name Path -Value ($raw.TrimEnd(';') + ';%SystemRoot%\System32\WindowsPowerShell\v1.0\') -PropertyType ExpandString -Force }"#;
+const AFTER: &str =
+    "Then sign out and back in. To undo, double-click env-backup.reg in your user folder.";
+
 /// The machine environment's `ComSpec` must exist and point at a real file: other
 /// programs start `cmd.exe` through it. AMIRI itself falls back to the system shell.
 fn comspec(src: &EnvSource) -> Check {
-    let fix = "In an elevated PowerShell: [Environment]::SetEnvironmentVariable('ComSpec', \
-               \"$env:SystemRoot\\system32\\cmd.exe\", 'Machine'), then sign out and back in.";
+    let fix = format!("{BACKUP}. {COMSPEC_FIX}. {AFTER}");
     let (status, detail) = match src.machine_value("ComSpec") {
         None => (
             Status::Fail,
@@ -63,7 +71,7 @@ fn comspec(src: &EnvSource) -> Check {
     let next_steps = if status == Status::Ok {
         vec![]
     } else {
-        vec![fix.to_string()]
+        vec![fix]
     };
     Check {
         name: "machine_comspec",
@@ -102,10 +110,7 @@ fn powershell_on_path(src: &EnvSource) -> Check {
         name: "machine_path_powershell",
         status: Status::Warn,
         detail: format!("the machine PATH lacks {ps_dir}; AMIRI starts PowerShell by full path, other tools may not"),
-        next_steps: vec!["In an elevated PowerShell: $p = [Environment]::GetEnvironmentVariable('Path','Machine'); \
-                          [Environment]::SetEnvironmentVariable('Path', \"$p;$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\\", \
-                          'Machine'), then sign out and back in."
-            .into()],
+        next_steps: vec![format!("{BACKUP}. {PATH_FIX}. {AFTER}")],
     }
 }
 
@@ -152,8 +157,10 @@ mod tests {
         let src = machine(&real_windir(), None, HEALTHY_PATH);
         let c = comspec(&src);
         assert_eq!(c.status, Status::Fail);
+        let step = &c.next_steps[0];
+        assert!(step.contains("reg export"), "backs up first: {c:?}");
         assert!(
-            c.next_steps[0].contains("SetEnvironmentVariable('ComSpec'"),
+            step.contains("-Name ComSpec") && step.contains("-PropertyType ExpandString"),
             "{c:?}"
         );
     }
@@ -173,7 +180,13 @@ mod tests {
         );
         let c = powershell_on_path(&src);
         assert_eq!(c.status, Status::Warn);
-        assert!(c.next_steps[0].contains("WindowsPowerShell"), "{c:?}");
+        let step = &c.next_steps[0];
+        assert!(
+            step.contains("reg export") && step.contains("DoNotExpandEnvironmentNames"),
+            "{c:?}"
+        );
+        // The .NET setter would store %...% entries expanded and change the value type.
+        assert!(!step.contains("SetEnvironmentVariable"), "{c:?}");
     }
 
     #[test]
