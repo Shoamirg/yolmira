@@ -205,6 +205,7 @@ fn dsr_answered_without_client() {
             .expect("create");
         tokio::time::sleep(Duration::from_secs(3)).await;
         let mut s = Shell::attach(&env, &info.id, ctl).await.expect("attach");
+        s.wait_powershell_prompt().await;
         s.send("Write-Output (\"AMIRI_\" + (6*7))\r").await;
         s.expect("AMIRI_42").await;
     });

@@ -15,6 +15,8 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 pub const STEP: Duration = Duration::from_secs(30);
+/// Allowance for a shell to start (cold machines, CI).
+pub const SHELL_START: Duration = Duration::from_secs(120);
 
 /// Error text including the daemon's `why` (the RPC message alone is only the `what`).
 fn describe(e: amiri_ipc::ClientError) -> String {
@@ -50,7 +52,34 @@ impl Shell {
             )
             .await
             .map_err(describe)?;
-        Self::attach(env, &info.id, ctl).await
+        let is_powershell = matches!(shell["kind"].as_str(), Some("powershell" | "pwsh"));
+        let mut s = Self::attach(env, &info.id, ctl).await?;
+        if is_powershell {
+            s.wait_powershell_prompt().await;
+        }
+        Ok(s)
+    }
+
+    /// Wait for the `PS …> ` prompt before typing, as a person would. Windows
+    /// PowerShell can take far longer than a test step to start on a cold machine (CI);
+    /// the prompt text isn't localized.
+    pub async fn wait_powershell_prompt(&mut self) {
+        let ready = |t: &str| t.find("PS ").is_some_and(|i| t[i..].contains("> "));
+        let found = tokio::time::timeout(SHELL_START, async {
+            while !ready(&self.text) {
+                if !self.pump().await {
+                    return false;
+                }
+            }
+            true
+        })
+        .await
+        .unwrap_or(false);
+        assert!(
+            found,
+            "no PowerShell prompt within {SHELL_START:?}; output tail: {:?}",
+            tail(&self.text)
+        );
     }
 
     /// Attach to an existing session on fresh connections.
