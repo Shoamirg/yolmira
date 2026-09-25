@@ -408,7 +408,7 @@ This keeps context explicit, auditable, and provider-independent. The same packe
 
 **On a limit hit** the task gets `PAUSED` with reason `usage_limit` and `resets_at` if reported. What happens next is set by the per-project policy `provider_failover`:
 - `ASK` (default for new projects): the user chooses between **wait** (auto-resume at `resets_at`, same agent, same session), **API-key billing** for this task (the user's own API-key profile, §6.4), or **hand over** to the other provider.
-- `ALLOW`: hand over without asking. The user sets this per project.
+- `ALLOW`: hand over without asking. The user sets this per project. **Gate:** until a real limit-hit event has been captured and turned into a test fixture, `ALLOW` behaves as `ASK`. An automatic handover must not fire on a signal nobody has seen. The first real limit is captured opportunistically from the raw stream logs (§9.1) during normal use, never provoked.
 
 **Handover (e.g. Claude → Codex).**
 1. AMIRI takes a git snapshot (commit on a scratch ref, working tree untouched) and records the diff and the plan step that was in progress. A limit can stop an agent mid-edit, so the step is never assumed finished.
@@ -527,7 +527,7 @@ Read-only probe commands (`uname -a`, `cat /etc/os-release`, `nvidia-smi --query
 ### 10.8 WSL transport
 `wsl.exe -d <distro> --cd <dir> -- <cmd>` through ConPTY/stdio. tmux inside WSL gives the same persistence model as remote Linux. Paths are translated both ways (`D:\x` ↔ `/mnt/d/x`) in one tested function.
 
-### 10.9 Compute: training jobs on other machines' GPUs `[PROPOSAL — needs reviewer agreement]`
+### 10.9 Compute: training jobs on other machines' GPUs `[DECISION: accepted, Phase 5b]`
 A subsystem separate from agents. A training run is not an agent session: it's a command with resources, run to completion, and its output is evidence.
 - **GPU inventory per machine:** model, VRAM, driver/CUDA version, current use. Filled by the existing read-only probe (§10.7, `nvidia-smi --query-gpu=...`) and refreshed on the same cadence.
 - **Job queue:** a job is command + target machine + GPUs needed + data location + checkpoint directory. Queued per machine; a job starts only when its GPUs are free by the inventory and the machine's cap allows it.
@@ -536,7 +536,7 @@ A subsystem separate from agents. A training run is not an agent session: it's a
 - **Policy:** `compute.start_job` is ASK by default on any machine, and always ASK on a machine the user marks as someone else's. Each machine profile can cap AMIRI's use (GPUs by index, and a limit on concurrent jobs).
 - **Scope:** one job per machine first (parallel experiments, sweeps, different models). Distributed training of a single model across home machines is a later option: over ordinary Ethernet the GPUs mostly wait on the network.
 - **Reuse before building:** spike S6 (§16.2) evaluates SkyPilot, dstack and Ray for scheduling on the user's own machines over SSH. If one fits, AMIRI wraps it and keeps only inventory, policy and evidence; the scheduler above is the fallback design.
-- Phase placement: after Phase 3 (SSH), which it depends on `[OPEN]`.
+- Phase placement: **Phase 5b**, right after the orchestrator (§16.2). It needs only the SSH transport (Phase 3), the event log and evidence recording (Phase 5); not Obsidian, skills or UI polish. If remote training is needed sooner, a minimal version (inventory, jobs in remote tmux, logs back) can follow Phase 3 on the user's request, with evidence recording added later.
 
 ---
 
@@ -643,7 +643,6 @@ A phase is complete only when its exit criteria (§16) pass on the Windows CI ru
 - S1b Process lifetime (done): host kill vs. ConPTY and pipe children; cause of death recorded. See `spikes/s1b-process-lifetime/FINDINGS.md`.
 - S4 russh on Windows: key auth via Windows ssh-agent pipe, PTY into tmux, SFTP, reconnect.
 - S5 AgentsCommander evaluation (§2.1): fork / lift / reference.
-- S6 compute schedulers `[PROPOSAL]` (§10.9): SkyPilot, dstack and Ray against the user's own machines over SSH: setup without a cloud account, GPU discovery, job survival across a dropped connection, checkpoint resume, Windows client support, license. Runs before the Compute design is finalized; not needed to finish Phase 0.
 - Exit: a one-page findings note per spike; this document updated, with `[UNVERIFIED]` tags resolved or converted to risks.
 
 **Phase 1 — Windows shell**
@@ -665,6 +664,10 @@ Exit: same test tiers as Phase 2; the same handoff packet runs on either provide
 **Phase 5 — Orchestrator**
 Full task state machine with guards; roles; handoff packets; repair loop bounds; `AWAITING_APPROVAL`; structured review findings.
 Exit: state-machine property tests; an end-to-end scripted task with fake CLIs traverses the happy path and failure → repair → BLOCKED path.
+
+**Phase 5b — Compute** (§10.9)
+Starts with spike S6: SkyPilot, dstack and Ray against the user's own machines over SSH (setup without a cloud account, GPU discovery, job survival across a dropped connection, checkpoint resume, Windows client support, license). Then: GPU inventory; job queue with per-machine caps and `compute.start_job` policy; jobs in remote tmux with log streaming; checkpoint resume; results as `EXPERIMENT` evidence. Wraps an existing scheduler if S6 finds one that fits.
+Exit: a job survives a killed connection and a remote reboot (resuming from its checkpoint) with no lost log bytes; its metrics and checkpoint hash are recorded as evidence.
 
 **Phase 6 — Obsidian**
 Vault discovery; zones; safe writes; FTS index; MCP knowledge tools; session summaries and decision notes.
@@ -716,7 +719,7 @@ Exit: clean Windows Sandbox install test passes.
 9. Code signing: acquire a certificate, use a foundation program (as AgentsCommander plans with SignPath), or ship unsigned initially?
 10. `amiri-sessiond` (a minimal process owning only the ConPTYs so local shells survive an `amirid` crash or upgrade, §D3). **Deferred.** In v1 a daemon crash marks sessions UNKNOWN; agent conversations resume from the providers' own session stores; long-running work goes through tmux in WSL or on a remote machine, which already survives. Decide once there is data on real `amirid` crash frequency. S1b settled the mechanism: ConPTY children die from `CTRL_CLOSE_EVENT` when the owning process dies (no job object involved), so a separate `amiri-sessiond` would keep them alive. The option is technically sound; only its value is open.
 
-11. Compute subsystem (§10.9) and spike S6: accept the proposal, and where does it go in the phase order?
+11. ~~Compute subsystem (§10.9) and spike S6: accept, and where in the phase order?~~ **Decided 2026-09-25:** Phase 5b, with S6 at its start (decisions.md).
 
 ---
 
