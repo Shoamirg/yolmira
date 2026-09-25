@@ -140,12 +140,13 @@ pub fn is_elevated() -> io::Result<bool> {
     Ok(elevation.TokenIsElevated != 0)
 }
 
-/// Full access for one SID only, protected from inheritance, with a mandatory label
+/// Full file access (`FA`: named pipes and token files are both file objects) for one
+/// SID only, protected from inheritance, with a mandatory label
 /// that denies lower integrity levels both read and write (`NWNR`). `elevated` labels
 /// the object High, so an unelevated process of the same user can't use it.
 pub fn owner_only_sddl(sid: &str, elevated: bool) -> String {
     let level = if elevated { "HI" } else { "ME" };
-    format!("D:P(A;;GA;;;{sid})S:(ML;;NWNR;;;{level})")
+    format!("D:P(A;;FA;;;{sid})S:(ML;;NWNR;;;{level})")
 }
 
 /// A security descriptor parsed from SDDL, freed on drop.
@@ -190,6 +191,24 @@ impl SecurityDescriptor {
     pub fn attributes_mut_void(&mut self) -> *mut c_void {
         (&mut self.attrs as *mut SECURITY_ATTRIBUTES).cast()
     }
+
+    /// This descriptor's DACL and label as Windows renders them (well-known SIDs become
+    /// aliases such as `LA`), for comparing with `object_sddl`.
+    pub fn to_sddl(&self) -> io::Result<String> {
+        sd_to_sddl(self.sd)
+    }
+}
+
+/// The ACE strings of an SDDL (`(A;;FA;;;S-1-…)`, `(ML;;NWNR;;;ME)`), sorted: comparable
+/// regardless of header flags such as `AI`.
+pub fn sddl_aces(sddl: &str) -> Vec<String> {
+    let mut aces: Vec<String> = sddl
+        .split('(')
+        .skip(1)
+        .filter_map(|rest| rest.split_once(')').map(|(ace, _)| format!("({ace})")))
+        .collect();
+    aces.sort();
+    aces
 }
 
 impl Drop for SecurityDescriptor {
@@ -224,6 +243,14 @@ pub fn object_sddl(
     if rc != 0 {
         return Err(io::Error::from_raw_os_error(rc as i32));
     }
+    let result = sd_to_sddl(sd);
+    // SAFETY: freed once.
+    unsafe { LocalFree(sd as HLOCAL) };
+    result
+}
+
+fn sd_to_sddl(sd: PSECURITY_DESCRIPTOR) -> io::Result<String> {
+    let info = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
     let mut text: *mut u16 = std::ptr::null_mut();
     // SAFETY: `sd` is valid; `text` receives a LocalAlloc'd string.
     let ok = unsafe {
@@ -232,18 +259,14 @@ pub fn object_sddl(
             SDDL_REVISION_1,
             info,
             &mut text,
-            null_mut(),
+            std::ptr::null_mut(),
         )
     };
-    let result = if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        // SAFETY: `text` is a NUL-terminated LocalAlloc'd string.
-        Ok(unsafe { take_local_wide(text) })
-    };
-    // SAFETY: freed once.
-    unsafe { LocalFree(sd as HLOCAL) };
-    result
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `text` is a NUL-terminated LocalAlloc'd string.
+    Ok(unsafe { take_local_wide(text) })
 }
 
 /// Write `path` as a new file whose security descriptor is `owner_only_sddl(sid, elevated)`.
@@ -306,10 +329,24 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"xyz");
         let f = std::fs::File::open(&path).unwrap();
         let sddl = object_sddl(&f, SE_FILE_OBJECT).unwrap();
+        let expected = SecurityDescriptor::from_sddl(&owner_only_sddl(&sid, false))
+            .and_then(|d| d.to_sddl())
+            .unwrap();
         assert!(sddl.starts_with("D:P"), "{sddl}");
-        assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
-        assert!(sddl.contains(&format!(";;;{sid})")), "{sddl}");
+        assert_eq!(
+            sddl_aces(&sddl),
+            sddl_aces(&expected),
+            "{sddl} vs {expected}"
+        );
         assert!(sddl.contains("(ML;;NWNR;;;ME)"), "{sddl}");
+    }
+
+    #[test]
+    fn sddl_aces_ignores_header_flags() {
+        assert_eq!(
+            sddl_aces("D:P(A;;FA;;;LA)S:AI(ML;;NWNR;;;ME)"),
+            sddl_aces("D:P(A;;FA;;;LA)S:(ML;;NWNR;;;ME)")
+        );
     }
 
     #[test]

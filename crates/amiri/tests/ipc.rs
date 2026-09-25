@@ -4,7 +4,7 @@ mod support;
 
 use amiri_ipc::client::open_pipe;
 use amiri_ipc::protocol::{codes, methods, notifications, EventsSubscribeParams, Request};
-use amiri_ipc::win::security::object_sddl;
+use amiri_ipc::win::security::{object_sddl, owner_only_sddl, sddl_aces, SecurityDescriptor};
 use amiri_ipc::{Client, ClientError};
 use serde_json::json;
 use std::os::windows::fs::OpenOptionsExt;
@@ -32,18 +32,22 @@ fn pipe_dacl_is_current_user_only() {
     env.start();
     let inst = env.instance();
     let sddl = pipe_sddl(&inst.pipe_name());
-    // Protected DACL with exactly one ACE: allow, for this user's SID.
+    // Protected DACL: exactly the ACEs of owner_only_sddl (one allow ACE for this
+    // user, NWNR mandatory label), compared as Windows renders them (e.g. `LA` on CI).
+    let expected = SecurityDescriptor::from_sddl(&owner_only_sddl(&inst.sid, elevated()))
+        .and_then(|d| d.to_sddl())
+        .expect("expected SDDL");
     assert!(sddl.starts_with("D:P"), "{sddl}");
+    assert_eq!(
+        sddl_aces(&sddl),
+        sddl_aces(&expected),
+        "{sddl} vs {expected}"
+    );
     assert_eq!(
         sddl.matches("(A;").count(),
         1,
         "exactly one allow ACE: {sddl}"
     );
-    assert!(!sddl.contains("(D;"), "{sddl}");
-    assert!(sddl.contains(&format!(";;;{})", inst.sid)), "{sddl}");
-    // Lower integrity levels (Low IL sandboxes) can neither read nor write.
-    let level = if elevated() { "HI" } else { "ME" };
-    assert!(sddl.contains(&format!("(ML;;NWNR;;;{level})")), "{sddl}");
 }
 
 #[test]

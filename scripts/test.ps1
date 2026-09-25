@@ -21,10 +21,21 @@ try {
         ForEach-Object { $_.executable } |
         Sort-Object -Unique
     $failed = @()
+    $notRun = @()
     foreach ($exe in $exes) {
         Write-Host "== $exe"
-        if ($Filter) { & $exe $Filter } else { & $exe }
-        if ($LASTEXITCODE -ne 0) { $failed += $exe }
+        $testArgs = @()
+        if ($Filter) { $testArgs += $Filter }
+        # cmd merges stderr into stdout as plain text (PowerShell 5.1 would wrap it in error records).
+        $out = & cmd /d /c "`"$exe`" $($testArgs -join ' ') 2>&1"
+        $code = $LASTEXITCODE
+        $out | ForEach-Object { Write-Host $_ }
+        $notRun += $out | Where-Object { $_ -match '^NOT RUN ON CI' }
+        if ($code -ne 0) { $failed += $exe }
+    }
+    if ($notRun.Count -gt 0) {
+        Write-Host "Not run in this environment ($($notRun.Count)):"
+        $notRun | ForEach-Object { Write-Host "  $_" }
     }
     if ($failed.Count -gt 0) {
         Write-Host "FAILED test binaries:"

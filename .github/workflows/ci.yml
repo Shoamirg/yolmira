@@ -40,6 +40,10 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # The runner's own job object forbids breakaway, so the detach tests can't run
+      # here; the flag makes them report "NOT RUN ON CI" (they run locally).
       - name: Tests (outside cargo's job object)
         shell: pwsh
+        env:
+          AMIRI_CI_NO_BREAKAWAY: "1"
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1

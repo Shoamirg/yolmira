@@ -15,27 +15,45 @@ pub const AMIRID: &str = env!("CARGO_BIN_EXE_amirid");
 pub struct TestEnv {
     pub name: String,
     pub home: tempfile::TempDir,
+    /// False inside a job that forbids breakaway (cargo, GitHub's runner): the
+    /// detached launcher can't work there, so daemons are started directly.
+    pub can_detach: bool,
 }
+
+/// Set by the CI workflow: the runner's job forbids breakaway, so detach tests are
+/// reported as not run instead of failing.
+pub const CI_NO_BREAKAWAY: &str = "AMIRI_CI_NO_BREAKAWAY";
 
 impl TestEnv {
     pub fn new() -> Self {
-        // cargo runs tests inside a kill-on-close job that forbids breakaway, so the
-        // detached daemon start (the thing under test) is impossible there by design.
-        if amiri_ipc::win::process::current_job_allows_breakaway()
+        let can_detach = amiri_ipc::win::process::current_job_allows_breakaway()
             .ok()
             .flatten()
-            == Some(false)
-        {
-            panic!(
-                "these tests must run outside cargo's job object (it forbids breakaway): \
-                    use scripts/test.ps1, which runs the test binaries directly"
-            );
-        }
+            != Some(false);
         let name = format!("t{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
         Self {
             name,
             home: tempfile::tempdir().expect("temp home"),
+            can_detach,
         }
+    }
+
+    /// For tests of detaching itself. Returns false (test must return) only on CI with
+    /// the explicit flag; anywhere else a restrictive job is a hard failure.
+    pub fn require_detach(&self, test: &str) -> bool {
+        if self.can_detach {
+            return true;
+        }
+        if std::env::var(CI_NO_BREAKAWAY).as_deref() == Ok("1") {
+            // Not eprintln!: the test harness captures that for passing tests, which would
+            // hide exactly this report. A direct write to the handle isn't captured.
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr(), "NOT RUN ON CI (needs breakaway): {test}");
+            return false;
+        }
+        panic!(
+            "{test} needs to run outside a job that forbids breakaway (cargo's does):              use scripts/test.ps1, which runs the test binaries directly"
+        );
     }
 
     pub fn home(&self) -> PathBuf {
@@ -80,7 +98,12 @@ impl TestEnv {
         v
     }
 
+    /// Start the daemon: through the real (detaching) launcher when possible,
+    /// otherwise `amirid` directly inside the current job.
     pub fn start(&self) -> Value {
+        if !self.can_detach {
+            return self.start_in_job();
+        }
         let out = run_bounded(AMIRI, &self.start_args(), &self.home());
         assert!(
             out.status.success(),
@@ -88,6 +111,30 @@ impl TestEnv {
             String::from_utf8_lossy(&out.stdout)
         );
         last_json(&out)
+    }
+
+    fn start_in_job(&self) -> Value {
+        if let Some(pid) = self.running_pid() {
+            return serde_json::json!({ "state": "already_running", "pid": pid });
+        }
+        let opts = amiri_ipc::win::process::SpawnOptions {
+            exe: AMIRID.into(),
+            args: self.amirid_args(),
+            flags: amiri_ipc::win::process::CREATE_NO_WINDOW,
+            ..Default::default()
+        };
+        let p = amiri_ipc::win::process::spawn(&opts).expect("spawn amirid");
+        let mut pid = None;
+        self.wait_until("in-job daemon answers", Duration::from_secs(20), || {
+            pid = self.running_pid();
+            pid.is_some()
+        });
+        assert_eq!(
+            pid,
+            Some(u64::from(p.pid())),
+            "the answering daemon is the one started"
+        );
+        serde_json::json!({ "state": "started", "pid": pid })
     }
 
     /// Daemon pid if it answers.
@@ -116,7 +163,11 @@ impl TestEnv {
             .expect("connect")
     }
 
+    /// All events (starts the daemon first if needed, as `amiri events` would).
     pub fn events(&self) -> Vec<Value> {
+        if self.running_pid().is_none() {
+            self.start();
+        }
         let out = self.amiri(&["events", "--limit", "10000"]);
         String::from_utf8_lossy(&out.stdout)
             .lines()

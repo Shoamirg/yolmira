@@ -25,6 +25,9 @@ fn launcher_in_job(env: &TestEnv, allow_breakaway: bool) -> (Job, Option<u32>) {
 #[test]
 fn daemon_survives_launcher_job_close() {
     let env = TestEnv::new();
+    if !env.require_detach("daemon_survives_launcher_job_close") {
+        return;
+    }
     let (job, code) = launcher_in_job(&env, true);
     assert_eq!(code, Some(0), "launcher exit code");
     let pid = env.running_pid().expect("daemon answers after start");
@@ -87,6 +90,9 @@ fn restrictive_job_reports_manual_start() {
 #[test]
 fn daemon_survives_launcher_console_close() {
     let env = TestEnv::new();
+    if !env.require_detach("daemon_survives_launcher_console_close") {
+        return;
+    }
     let mut pty = Pty::spawn(AMIRI, &env.start_args());
     env.wait_until("launcher exit", Duration::from_secs(30), || {
         matches!(pty.child.try_wait(), Ok(Some(_)))
@@ -104,6 +110,9 @@ fn daemon_survives_launcher_console_close() {
 #[test]
 fn second_start_connects_to_existing() {
     let env = TestEnv::new();
+    if !env.require_detach("second_start_connects_to_existing") {
+        return;
+    }
     let first = env.start();
     let second = env.start();
     assert_eq!(first["state"], "started");
@@ -114,6 +123,9 @@ fn second_start_connects_to_existing() {
 #[test]
 fn concurrent_start_single_daemon() {
     let env = TestEnv::new();
+    if !env.require_detach("concurrent_start_single_daemon") {
+        return;
+    }
     let args = env.start_args();
     let home = env.home();
     let results: Vec<serde_json::Value> = std::thread::scope(|s| {
