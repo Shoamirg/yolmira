@@ -15,7 +15,7 @@ This document applies AMIRI's own evidence rules to itself. Statements are tagge
 | `[DECISION]` | Architectural choice made here, open to review. |
 | `[OPEN]` | Question the reviewer must answer. |
 
-Nothing in this document has been measured. Every performance or reliability property is a target, not a fact.
+Phase 0 spikes verified some statements; those cite their findings (`spikes/*/FINDINGS.md`). What the spikes did not settle is listed as a named risk in §16.4. Every performance or reliability property not backed by a finding is a target, not a fact.
 
 ---
 
@@ -48,7 +48,7 @@ The field has moved fast; there are now many overlapping tools. The ones that ma
 | **adelost/agentmux** | Claude+Codex in tmux panes; durable per-pane FIFO prompt queue with delivery receipts; reads the agents' structured JSONL history instead of scraping the screen; `doctor` command enumerating silent failure modes `[README]` | Node | verify | **Adopt two ideas:** delivery receipts for prompts, and a `doctor` diagnostics command. |
 | **jaysidd / RBJGlobal claudelink** | MCP server letting several Claude Code (and other MCP-capable) instances message each other through SQLite `[README]` | Node | verify | **Subsumed** by AMIRI's own MCP server (§9). Confirms the pattern works. |
 | guzus/claude-link | Telegram bridge for Claude Code | — | — | Out of scope (unrelated despite the name). |
-| Obsidian MCP servers (obsidian-mcp, MCPVault, trsdn/obsidian-mcp, Rust `obsidian-mcp` crate, cyanheads obsidian-mcp-server, Local REST API plugin) | Two camps: filesystem-direct (no plugin, works with Obsidian closed) vs. REST-plugin-mediated (Obsidian must run) `[README]`. The Local REST API plugin reportedly serves MCP itself since v5.0 `[UNVERIFIED]`. | mixed | mixed | **Filesystem camp chosen** (§11). External servers remain registrable as optional MCP tools. |
+| Obsidian MCP servers (obsidian-mcp, MCPVault, trsdn/obsidian-mcp, Rust `obsidian-mcp` crate, cyanheads obsidian-mcp-server, Local REST API plugin) | Two camps: filesystem-direct (no plugin, works with Obsidian closed) vs. REST-plugin-mediated (Obsidian must run) `[README]`. The Local REST API plugin reportedly serves MCP itself since v5.0 `[UNVERIFIED, not load-bearing: AMIRI uses the filesystem]`. | mixed | mixed | **Filesystem camp chosen** (§11). External servers remain registrable as optional MCP tools. |
 | **codex-codes** (Rust crate) | Typed Rust bindings for the Codex app-server JSON-RPC protocol: thread/turn lifecycle, approvals, streaming notifications `[README]` | Rust | verify | **Candidate dependency** for the Codex adapter, pinned and wrapped. Fallback: own thin client. |
 
 **Security note.** At least one repository found during research (a lookalike "AgentMux" whose README directs Windows users to download a zip from inside a `tests/` folder) matches a known malware-lure pattern. AMIRI's dependency policy (§5.3) exists because of this ecosystem: many near-identical repos, low stars, vibe-coded code.
@@ -81,8 +81,8 @@ There is also a thin **`amiri` CLI** over the same IPC, used for scripting, test
 ### D2. Two channels per agent: structured control + human terminal `[DECISION]`
 The orchestrator **never drives an agent by screen-scraping a TUI.** Both target agents expose structured protocols:
 
-- **Claude Code:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with `--session-id` / `--resume` for persistence and `--permission-prompt-tool` to route permission requests to an MCP tool `[DOC for flags; exact stdin message schema is under-documented per an open docs issue — spike required]`.
-- **Codex:** `codex app-server`, newline-delimited JSON-RPC over stdio: `thread/start`, `turn/start`, `turn/interrupt`, `turn/steer`, streamed item notifications, and server-initiated approval requests `[README-level via codex-codes and third-party guides; described as experimental — spike required]`.
+- **Claude Code:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with `--session-id` / `--resume` for persistence and `--permission-prompt-tool` to route permission requests to AMIRI `[VERIFIED by S2: message schema, multi-turn, resume, interrupt, and permission round-trips over both stdio and an MCP tool; spikes/s2-claude-stream/FINDINGS.md]`.
+- **Codex:** `codex app-server`, newline-delimited JSON-RPC over stdio: `thread/start`, `turn/start`, `turn/interrupt`, `turn/steer`, streamed item notifications, and server-initiated approval requests `[README-level via codex-codes and third-party guides; described as experimental. Deferred to S3 at the start of Phase 4: risk R1, §16.4]`.
 
 The **PTY channel** is for humans: open the same session interactively (`claude --resume <id>` in a real ConPTY). A session is locked to one channel at a time so the orchestrator and a human never type into the same session at once.
 
@@ -208,9 +208,9 @@ The agent trait is in §9.
 | `tokio` | async runtime | De facto standard; required by russh, rmcp, Tauri | async-std (ecosystem mismatch) |
 | `tauri` 2 | desktop shell | Spec requirement; small bundles, native WebView2 | Electron (size, second runtime) |
 | `portable-pty` | ConPTY + Unix PTY | Maintained with WezTerm; used by AgentsCommander `[README]` | raw `windows` crate ConPTY (reinventing); winpty (legacy) |
-| `russh` + `russh-sftp` | SSH client, PTY, exec, SFTP | Pure Rust, async, no OpenSSL/libssh2 C build on Windows `[UNVERIFIED: confirm agent-forwarding and Windows ssh-agent pipe support in spike]` | `ssh2` (libssh2 C dep, blocking); shelling out to `ssh.exe` (kept as fallback transport for exotic `~/.ssh/config`, §10.6) |
+| `russh` + `russh-sftp` | SSH client, PTY, exec, SFTP | Pure Rust, async, no OpenSSL/libssh2 C build on Windows `[VERIFIED by S4: Windows ssh-agent pipe, host-key pinning, PTY, SFTP, exec; agent forwarding not tested: risk R9, §16.4]` | `ssh2` (libssh2 C dep, blocking); shelling out to `ssh.exe` (kept as fallback transport for exotic `~/.ssh/config`, §10.6) |
 | `rusqlite` (`bundled`) | SQLite | Bundled SQLite includes FTS5 (used for vault search); synchronous API is fine behind a dedicated DB thread | `sqlx` (compile-time checks need a live DB; heavier) |
-| `rmcp` | MCP server + client | Official Rust MCP SDK `[UNVERIFIED: pin version and confirm transport support at Phase 6]` | hand-rolled JSON-RPC (violates "don't invent APIs") |
+| `rmcp` | MCP server + client | Official Rust MCP SDK `[UNVERIFIED: pin version and confirm stdio server support at first use: risk R10, §16.4]` | hand-rolled JSON-RPC (violates "don't invent APIs") |
 | `codex-codes` | Codex app-server client | Typed protocol bindings `[README]`; wrapped so it can be replaced | own client (fallback if crate lags CLI versions) |
 | `keyring` | Windows Credential Manager | OS secure storage for passwords/passphrases (requirement 7, 22) | DPAPI directly (more code, same result) |
 | `serde`, `serde_json` | serialization | standard | — |
@@ -265,7 +265,7 @@ React + TypeScript + Vite; `@xterm/xterm` + fit/web-links addons (the de facto b
 - SSH: prefer the Windows OpenSSH agent; fall back to reading the key file at connect time, with the passphrase from Credential Manager. Private key bytes never enter the DB, the event log, or any agent's environment.
 - Provider auth belongs to the CLIs (Claude Code login, Codex login). AMIRI does not read or copy their tokens and only reports whether the probe found them.
 - **Provider accounts: hard rule** `[DECISION]` (decisions.md, 2026-09-25). Agents always run through their official CLIs with their own login. AMIRI **never** extracts, copies or reuses CLI login tokens, **never** rotates accounts automatically to get around a usage limit, and **never** uses another person's account. A usage limit is handled by pausing, API-key billing or provider failover (§8.4), never by switching to a fresh account.
-- **Account profiles per project** (allowed, the user's own accounts only). The user picks which of *their* accounts a project uses, e.g. a subscription login for everyday work and an API key for a client project. A profile is a reference: a separate CLI config directory holding that CLI's own login, or a Credential Manager target for an API key. It's added to the child's allowlisted environment (§9.6) as a deliberate addition. The profile is chosen per project by the user and never changed by AMIRI to escape a limit. `[UNVERIFIED: the per-profile mechanism for each CLI (config-dir variable for Claude Code, `CODEX_HOME` for Codex); confirm in S3 / Phase 2]`
+- **Account profiles per project** (allowed, the user's own accounts only). The user picks which of *their* accounts a project uses, e.g. a subscription login for everyday work and an API key for a client project. A profile is a reference: a separate CLI config directory holding that CLI's own login, or a Credential Manager target for an API key. It's added to the child's allowlisted environment (§9.6) as a deliberate addition. The profile is chosen per project by the user and never changed by AMIRI to escape a limit. `[UNVERIFIED: the per-profile mechanism for each CLI (config-dir variable for Claude Code, `CODEX_HOME` for Codex): risk R5 (Claude, Phase 2) and R1 (Codex, S3), §16.4]`
 - A **redaction filter** runs on everything written to the event log, artifacts, and exports: known secret patterns plus exact-match against values fetched from Credential Manager in this process lifetime.
 - Session export requires a redaction review screen.
 
@@ -404,7 +404,7 @@ This keeps context explicit, auditable, and provider-independent. The same packe
 
 ### 8.4 Usage limits and provider failover `[DECISION]` (decisions.md, 2026-09-25)
 
-**Detection.** The Claude stream carries `rate_limit_event` with `status`, `resetsAt`, `rateLimitType` (`five_hour`, …) and per-window `utilization` (seen in S2, all with `status: "allowed"`). `[UNVERIFIED: the event and status value when a limit is actually hit, and how the turn ends; Codex's equivalent is part of S3]`. The adapter normalizes these into an `AgentEvent::UsageLimit { window, utilization, resets_at, hit }`, and the UI shows utilization.
+**Detection.** The Claude stream carries `rate_limit_event` with `status`, `resetsAt`, `rateLimitType` (`five_hour`, …) and per-window `utilization` (seen in S2, all with `status: "allowed"`). `[UNVERIFIED: the event and status value when a limit is actually hit, and how the turn ends: risk R3; Codex's equivalent: R1, §16.4]`. The adapter normalizes these into an `AgentEvent::UsageLimit { window, utilization, resets_at, hit }`, and the UI shows utilization.
 
 **On a limit hit** the task gets `PAUSED` with reason `usage_limit` and `resets_at` if reported. What happens next is set by the per-project policy `provider_failover`:
 - `ASK` (default for new projects): the user chooses between **wait** (auto-resume at `resets_at`, same agent, same session), **API-key billing** for this task (the user's own API-key profile, §6.4), or **hand over** to the other provider.
@@ -423,7 +423,9 @@ Every step is an event (`task.paused`, `task.failover`, `review.independence_los
 
 ## 9. Agent protocol
 
-### 9.1 Trait
+### 9.1 Trait `[PROVISIONAL until S3]`
+
+`[DECISION]` (decisions.md, 2026-09-25): this trait and the `AgentEvent`/`AgentCapabilities` types are provisional until S3 has tested Codex. Phase 2 builds them against Claude, the only provider tested so far, and must not put Claude-specific behaviour into shared types. Examples: `init` arriving only after the first message, stdin EOF not stopping a turn, `control_request` shapes, `total_cost_usd: 0` on interrupted turns. Those stay inside the Claude adapter. S3 findings may change the trait. Contract tests (§15) are written against the trait, so a change shows up as test changes, not silent drift.
 
 ```rust
 #[async_trait]
@@ -468,15 +470,20 @@ pub enum AgentEvent {                       // normalized across providers
 Every raw provider line is also captured to `artifacts/<task>/<session>.jsonl` before parsing. When a CLI changes its format, the raw capture shows what happened and becomes a new test fixture.
 
 ### 9.2 Claude Code adapter
-- Spawn: `claude -p --input-format stream-json --output-format stream-json --verbose --session-id <uuid> --mcp-config <generated.json> --permission-prompt-tool mcp__amiri__approve [--allowedTools …]` in the target cwd, through the task's transport `[DOC for flags; spike required for the stdin message schema, the interrupt control message, and permission-tool request/response shapes]`.
+- Spawn: `claude -p --input-format stream-json --output-format stream-json --verbose --session-id <uuid> --mcp-config <generated.json> --permission-prompt-tool mcp__amiri__approve [--allowedTools …]` in the target cwd, through the task's transport `[VERIFIED by S2, Claude Code 2.1.281]`. S2 established:
+  - **Stdin schema, multi-turn and resume** work as planned. `system/init` arrives only after the first user message, so the adapter doesn't wait for it.
+  - **Interrupt:** `control_request {subtype: interrupt}`. The turn ends as `error_during_execution` / `aborted_streaming`, and the session continues. Such turns report `total_cost_usd: 0`, so cost comes from per-message `usage` or is marked unknown.
+  - **Stdin EOF is not a stop signal.** Mid-turn, `claude` finishes the turn (tools included) before exiting. Stop with interrupt or the job (§9.6); closing stdin only ends an idle session cleanly.
+  - **Permission requests** round-trip both over stdio (`--permission-prompt-tool stdio`, `control_request {subtype: can_use_tool}`) and through an MCP tool (the MCP route fails closed under `--safe-mode`, which disables `--mcp-config`). **Which route AMIRI uses is not decided yet** (S2 proposes stdio). It must be decided before Phase 2; the flags above show the MCP route until then.
+  - `init.capabilities` lists protocol features. The adapter gates on these rather than on `claude_code_version`.
 - Resume: `--resume <session-id>`. The PTY channel opens `claude --resume <id>` in ConPTY after the structured process has exited (session lock).
-- Some sources report that Claude Code hooks do not run in `-p` mode and that `--append-system-prompt` is not preserved on resume `[README-level, UNVERIFIED]`. The adapter must not depend on hooks for enforcement; role instructions are re-sent in each handoff packet.
+- Some sources report that Claude Code hooks do not run in `-p` mode and that `--append-system-prompt` is not preserved on resume `[README-level, UNVERIFIED, not load-bearing: S2 ran with --safe-mode, so hooks were not tested]`. The adapter must not depend on hooks for enforcement; role instructions are re-sent in each handoff packet.
 - AMIRI does not reimplement Claude Code features (subagents, skills, compaction). It configures and observes them.
 
 ### 9.3 Codex adapter
-- Spawn `codex app-server` (stdio). Handshake with `initialize`/`initialized`. Then `thread/start` with `cwd`, `approvalPolicy`, `sandbox`, and `model`; `turn/start` to send input; `turn/interrupt` to stop; `turn/steer` to add input mid-turn `[README-level; spike required]`.
+- Spawn `codex app-server` (stdio). Handshake with `initialize`/`initialized`. Then `thread/start` with `cwd`, `approvalPolicy`, `sandbox`, and `model`; `turn/start` to send input; `turn/interrupt` to stop; `turn/steer` to add input mid-turn `[README-level; deferred to S3: risk R1, §16.4]`.
 - Server-initiated approval requests (`item/commandExecution/requestApproval`, file-change approvals) route to the Policy Engine. The adapter must handle inbound requests, not just responses, and must drain stderr continuously `[README: codex-wrapper issue #140]`.
-- Reported behavior to verify: signaling the server may leave its child commands running, while closing stdin shuts it down cleanly `[README, UNVERIFIED]`. `terminate()` therefore closes stdin first, then kills the process tree by job object on Windows.
+- Reported behavior to verify: signaling the server may leave its child commands running, while closing stdin shuts it down cleanly `[README, UNVERIFIED: S3, risk R1, §16.4]`. `terminate()` therefore closes stdin first, then kills the process tree by job object on Windows.
 - Uses the user's existing Codex login. An OpenAI-API-direct adapter (Responses API) is a separate future provider, not a Codex mode.
 
 ### 9.4 Adding a provider
@@ -501,7 +508,7 @@ Roles (`planner`, `implementer`, `reviewer`, `debugger`, `researcher`, `tester`,
 The spec's YAML is kept, extended with `known_host_policy` (`strict` default), `allow_password: false` (default), `persistence: tmux|none`, and `default_workdir`. It never contains secret values.
 
 ### 10.2 Authentication order
-1. Windows OpenSSH agent (named pipe `\\.\pipe\openssh-ssh-agent`) `[UNVERIFIED: russh support on Windows — spike]`
+1. Windows OpenSSH agent (named pipe `\\.\pipe\openssh-ssh-agent`) `[VERIFIED by S4: spikes/s4-russh/FINDINGS.md]`
 2. `identity_file` read at connect time; passphrase from Credential Manager if stored, otherwise prompted and optionally stored
 3. Password — only if `allow_password: true`; value from Credential Manager or prompt
 
@@ -562,7 +569,7 @@ A subsystem separate from agents. A training run is not an agent session: it's a
 
 ## 12. Skills architecture
 
-- **Format** `[DECISION]`: don't invent one. A skill is a folder with a `SKILL.md` whose frontmatter carries `name` and `description`, matching the Agent Skills convention that Claude Code uses natively. Codex also has a skills mechanism `[README-level — verify format compatibility in Phase 7]`. The spec's section layout (Environment, Known Issues, Verified Solutions, Benchmarks, Commands, Warnings, References) goes in the body.
+- **Format** `[DECISION]`: don't invent one. A skill is a folder with a `SKILL.md` whose frontmatter carries `name` and `description`, matching the Agent Skills convention that Claude Code uses natively. Codex also has a skills mechanism `[README-level; verify format compatibility in Phase 7: risk R11, §16.4]`. The spec's section layout (Environment, Known Issues, Verified Solutions, Benchmarks, Commands, Warnings, References) goes in the body.
 - **Location:** the vault's `Skills/` tree, so skills stay ordinary Markdown in Obsidian.
 - **Claim-level status:** each entry under *Verified Solutions* and *Benchmarks* carries an inline marker linking evidence, e.g. `✅ verified · ev:01J…` or `⚠ unverified`. A linter rejects "verified" markers that don't resolve to an evidence record.
 - **Lifecycle:** agent calls `skills.propose(skill, patch, claims[])` → a pending proposal appears in the UI as a diff → the user accepts, edits, or rejects → the accepted patch is written to the vault. Claims arrive as UNVERIFIED unless their evidence IDs exist. **No path turns agent text into VERIFIED knowledge automatically** (requirement 15).
@@ -638,8 +645,8 @@ A phase is complete only when its exit criteria (§16) pass on the Windows CI ru
 **Phase 0 — Spikes (throwaway code, findings recorded as evidence)**
 - S1 ConPTY: portable-pty on the target Windows build: interactive `pwsh`, ANSI, resize, Ctrl+C, and **what happens to the child when the host process dies** (settles D3).
 - S2 Claude stream-json: bidirectional stdin/stdout session, `--session-id`/`--resume`, interrupt, `--permission-prompt-tool` round-trip through a toy MCP server; record raw fixtures.
-- S3 Codex app-server: thread/turn lifecycle, approval request round-trip, interrupt, shutdown behavior; decide `codex-codes` vs. own client. Also the **failover pickup** (§8.4): given a handoff packet with a `takeover` block, a half-finished diff in a scratch repo and a simulated Claude limit event, Codex's first actions are to inspect the diff and run the tests, then continue. Also: Codex's usage-limit signal, and its per-profile config mechanism (§6.4).
-- S2 and S3 both: close stdin mid-turn and record whether the CLI and its child processes exit (S1b showed a child that ignores EOF survives as an orphan). Run within the approved limits in `docs/decisions.md`.
+- S3 Codex: **moved to the start of Phase 4** (decisions.md, 2026-09-25); see Phase 4. Its open questions are risk R1 (§16.4).
+- S2: close stdin mid-turn and record whether the CLI and its child processes exit (done; S1b showed a child that ignores EOF survives as an orphan). Run within the approved limits in `docs/decisions.md`.
 - S1b Process lifetime (done): host kill vs. ConPTY and pipe children; cause of death recorded. See `spikes/s1b-process-lifetime/FINDINGS.md`.
 - S4 russh on Windows: key auth via Windows ssh-agent pipe, PTY into tmux, SFTP, reconnect.
 - S5 AgentsCommander evaluation (§2.1): fork / lift / reference.
@@ -658,7 +665,15 @@ Machine profiles; auth order; host-key flow; connection manager; remote PTY via 
 Exit: SSH integration suite green, including kill-the-connection-mid-task → reconnect → zero lost journal bytes; unknown/mismatched host tests.
 
 **Phase 4 — Codex**
-Codex adapter; independent sessions; approval routing; manual task routing by role.
+**Gate: spike S3 first.** No Codex adapter code is written until S3 passes (decisions.md, 2026-09-25). S3 covers:
+- `codex app-server` thread/turn lifecycle, approval request round-trip, interrupt, and shutdown behaviour; decide `codex-codes` vs. an own client;
+- closing stdin mid-turn, and whether Codex and its child processes exit; kill-on-close job containment of the real Codex tree (§9.6);
+- Codex's usage-limit signal and its per-profile config mechanism (§6.4);
+- whether Codex works natively on Windows or needs WSL;
+- the **failover pickup** (§8.4): given a handoff packet with a `takeover` block, a half-finished diff in a scratch repo and a simulated Claude limit event, Codex's first actions are to inspect the diff and run the tests, then continue.
+
+S3 runs within the approved limits in `docs/decisions.md`. Its findings may change the provisional Agent trait (§9.1). If S3 shows Codex needs WSL, this phase's plan is revised before it starts.
+Then: Codex adapter; independent sessions; approval routing; manual task routing by role.
 Exit: same test tiers as Phase 2; the same handoff packet runs on either provider.
 
 **Phase 5 — Orchestrator**
@@ -703,6 +718,29 @@ Exit: clean Windows Sandbox install test passes.
 | 15 | Measured results | Evidence pipeline | 5, 7 |
 | 16–17 | Docs, skill proposals | Vault writes, skill proposals | 6, 7 |
 | 18–20 | Preserve session, Git state, reproducibility | Events, git snapshots, dirty-tree flags | 2, 8 |
+
+### 16.4 Named risks after Phase 0
+What the design still rests on without proof, after S0–S2, S4 and S5. Each risk names what depends on it and what settles it. A risk is closed by a findings note or a test, and removed from this list in the same commit.
+
+| ID | Risk | What depends on it | Settled by |
+|---|---|---|---|
+| R1 | **Codex, entirely untested.** `app-server` protocol (lifecycle, interrupt, steer, approval requests); stop behaviour (signals reportedly leave children running); job containment of its process tree; its usage-limit signal; `CODEX_HOME` profiles; native Windows vs WSL. | Phase 4; the Agent trait (R2); Claude→Codex failover (§8.4) | S3, a hard gate at the start of Phase 4 |
+| R2 | **Agent trait shaped by one provider.** Only Claude has been tested. | Every adapter, the orchestrator (Phase 5) | Trait provisional (§9.1); S3 may change it; contract tests show any change |
+| R3 | **Claude's limit-hit event never observed.** S2 only saw `status: "allowed"`. | Usage-limit pause and automatic failover (§8.4) | First real limit captured from raw stream logs during normal use; never provoked. Until then `provider_failover: ALLOW` acts as ASK |
+| R4 | **Claude CLI format drift.** Tested on 2.1.281 only; the stdin schema is under-documented upstream. | Claude adapter (Phase 2) | Raw capture of every line (§9.1), fixtures from S2, gating on `init.capabilities`, a live contract test per supported version |
+| R5 | **Claude account profiles.** Per-profile config directory mechanism not tested. | Account profiles per project (§6.4) | Phase 2 check before profiles ship |
+| R6 | **Claude under WSL and the real `claude` process tree under the job.** S2 ran `claude` natively; S1b/S1c proved the job mechanism with stand-in processes. | WSL execution targets; crash containment (§9.6) | Phase 1 process-manager tests (job vs real `claude` tree); Phase 2 WSL check |
+| R7 | **ConPTY beyond `cmd.exe`.** `pwsh` 7 and `wsl.exe` as PTY children, a 1-hour soak with output flood, and `wsl --shutdown` while attached were not run. | Phase 1 local terminal | Phase 1 PTY integration suite (§15) |
+| R8 | **Real networks.** S4 ran over localhost: no latency, loss, NAT timeouts or keepalive tuning; one server type (Ubuntu in WSL) and one host-key type (ed25519). | Connection manager and reconnect (§10.4), remote agents | Phase 3 SSH suite, including a real remote host |
+| R9 | **SSH agent forwarding and `~/.ssh/config`.** Forwarding untested; the `ssh.exe` fallback for `ProxyJump`/`ProxyCommand` untested. | Hosts that need forwarding or jump hosts (§10.6) | Phase 3 |
+| R10 | **`rmcp`** version and stdio server support. | AMIRI's MCP server (D6): permission tool if the MCP route is chosen (Phase 2), task tools (Phase 5) | Pin and test at first use |
+| R11 | **Codex skills format** compatibility with `SKILL.md`. | Skills shared across providers (§12) | Phase 7 |
+
+**Decisions needed before Phase 2** (not risks, but open):
+- Claude permission route: stdio control protocol (S2's proposal) or an MCP tool (current §6.2/§9.2 text).
+- `--safe-mode` as the default for AMIRI-launched Claude agents (S2's proposal; it also disables `--mcp-config`).
+
+Not load-bearing, left unverified: the Obsidian Local REST API serving MCP (§2), and Claude hooks in `-p` mode (§9.2). The design doesn't use either.
 
 ---
 
