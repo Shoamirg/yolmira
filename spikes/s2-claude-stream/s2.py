@@ -10,10 +10,12 @@ allowlisted environment, non-admin session. Aborts once total cost passes TOTAL_
 
 Usage: python s2.py <scratch-dir> [scenario ...] > findings.json  (no scenarios = all)
        python s2.py --resanitize <scratch-dir> ...
+       python s2.py --scrub-fixtures          (remove account email and plan from ./fixtures)
 """
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -200,7 +202,7 @@ class Run:
         for secret in filter(None, [os.environ.get("USERNAME"), os.environ.get("COMPUTERNAME")]):
             if len(secret) > 4:
                 text = text.replace(secret, "<NAME>")
-        return text
+        return scrub_account(text)
 
     def save(self, c):
         raw = self.scratch / "raw"
@@ -403,6 +405,26 @@ def git_state():
     return {"commit": git("rev-parse", "HEAD"), "dirty_tracked_files": None if dirty is None else bool(dirty)}
 
 
+EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# The account block in `initialize` responses; quotes may be escaped once or more (JSON in JSON).
+PLAN = re.compile(r'(subscriptionType\\*"\s*:\s*\\*")[^"\\]*')
+
+
+def scrub_account(text):
+    """Remove the Claude account's email (also inside the org name) and plan type."""
+    return PLAN.sub(r"\1<PLAN>", EMAIL.sub("<EMAIL>", text))
+
+
+def scrub_fixtures():
+    """Apply scrub_account to the committed fixtures in place (no raw copies needed)."""
+    for f in sorted(FIXTURES.glob("*.jsonl")):
+        text = f.read_text(encoding="utf-8")
+        clean = scrub_account(text)
+        if clean != text:
+            f.write_text(clean, encoding="utf-8")
+            print(f"scrubbed {f.name}")
+
+
 def resanitize(scratch):
     """Rewrite ./fixtures from a run's raw copies with the current sanitizer (no API calls)."""
     run = Run(scratch)
@@ -412,6 +434,9 @@ def resanitize(scratch):
 
 
 def main():
+    if sys.argv[1] == "--scrub-fixtures":
+        scrub_fixtures()
+        return
     if sys.argv[1] == "--resanitize":
         for scratch in sys.argv[2:]:
             resanitize(scratch)
