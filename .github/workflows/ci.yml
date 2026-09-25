@@ -42,6 +42,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # A fresh image builds Windows PowerShell's module-analysis cache on the first
+      # command, which can take longer than a test step; do it once up front.
+      - name: Warm up Windows PowerShell
+        run: powershell -NoProfile -Command "Get-Command Write-Output, Write-Host | Out-Null; Write-Output ready"
+
       # The runner's own job object forbids breakaway, so the detach tests can't run
       # here; the flag makes them report "NOT RUN ON CI" (they run locally).
       - name: Tests (outside cargo's job object)

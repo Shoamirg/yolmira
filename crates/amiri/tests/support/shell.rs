@@ -14,7 +14,9 @@ use base64::Engine;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-pub const STEP: Duration = Duration::from_secs(30);
+/// One command round trip. Generous: the first command in a fresh Windows PowerShell
+/// builds its module-analysis cache, which is slow on a new machine (CI).
+pub const STEP: Duration = Duration::from_secs(90);
 /// Allowance for a shell to start (cold machines, CI).
 pub const SHELL_START: Duration = Duration::from_secs(120);
 
