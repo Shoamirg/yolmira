@@ -699,7 +699,7 @@ Exit: no path in the test suite produces a VERIFIED marker without an evidence r
 Status panel; pre/post task snapshots; diffs; pre-commit test enforcement; commit recording; "Continue <project>" resolution.
 
 **Phase 9 — Security hardening**
-Scoped approvals UI; redaction review; `cargo deny`/audit gates; IPC token rotation; threat-model review against §6.1.
+Scoped approvals UI; redaction review; `cargo deny`/audit gates; IPC token rotation; zeroize sensitive buffers (terminal scrollback) before freeing, e.g. the `zeroize` crate (Slice B findings); threat-model review against §6.1.
 
 **Phase 10 — Packaging**
 Tauri bundler, NSIS per-user installer; first-run diagnostics; config migration; logging; optional updater; code signing `[OPEN: certificate source]`.
