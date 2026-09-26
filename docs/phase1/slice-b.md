@@ -49,6 +49,11 @@
 | security | LOW | cwd unvalidated; distro unvalidated; program folders from the caller; cwd exe lookup | Absolute drive/UNC folders only (no `\\?\`, `\\.\`); distro `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; `ProgramFiles*`/`ProgramData` from known folders; `NoDefaultCurrentDirectoryInExePath=1` |
 | both | LOW | `session.list` unbounded; `kill` after exit; stale attachment handles; base64 errors became empty output; functions over 50 lines | Running + 200 most recent ended; `kill`/`input`/`attach` refuse exited sessions; finished handles pruned; decode errors end the attach with a message; `attach` and `create` split |
 
+## Where the scrollback lives
+
+- The 2 MiB ring per session is **daemon memory only**: never written to the event log, the database, the daemon's log file or any other file (`session.input` is unlogged; no log line carries output or keystrokes). It is dropped when the session ends: on exit the session leaves the live map, and the memory is freed once the last attachment's handle is gone. A daemon restart loses it (sessions are reconciled to EXITED, not replayed).
+- Not done: the freed memory isn't zeroed, so it could survive in a crash dump or the page file until reused. Acceptable for Phase 1; if scrollback is ever persisted (e.g. replay after a daemon restart), it gets the event log's redaction and retention rules first.
+
 ## Plan deviations
 
 - `wsl_shutdown_while_attached` uses `wsl --terminate <throwaway distro>`, never `wsl --shutdown` (which would stop the user's running distros, including `docker-desktop`), and runs only when `AMIRI_TEST_WSL_DISTRO` names one.
@@ -57,13 +62,13 @@
 ## Open
 
 - `pwsh` and the 1 h soak: run at the phase exit (PowerShell 7 must be installed for `pwsh_session`; otherwise R7 stays open for pwsh).
-- `wsl_shutdown_while_attached`: needs a throwaway distro (e.g. the S4 image, re-imported under a test name) at the phase exit.
+- `wsl_shutdown_while_attached`: at the phase exit, reusing the S4 approach: a throwaway distro imported from the verified Ubuntu image, unregistered afterwards; never `wsl --shutdown`.
 - After `kill_all`'s 2 s shutdown wait, a shell that hasn't exited may record `session.exited` after `daemon.stopped`.
-- Two orphaned processes from 2026-09-24 (a `cmd.exe` started 17:26 and a `conhost.exe` 18:27, parents gone) are probably left from the Phase 0 lifetime spikes. Not touched.
+- Two orphaned processes from 2026-09-24 (a `cmd.exe` started 17:26 and a `conhost.exe` 18:27, parents gone) are probably left from the Phase 0 lifetime spikes. Not touched; gone when checked on 2026-09-26.
 
 ## CI
 
-- **First two runs failed on the four Windows PowerShell tests** (`5a010b7`, `9a3e679`); one diagnostic run in between passed. The full output showed the command typed and accepted (`
-` after the line), the prompt already there, and then no output for 30 s. Cause: the first command in a fresh Windows PowerShell on a new image builds its module-analysis cache, which is slow; locally the cache is always warm. PSReadLine is 2.0.0 on both (checked; printed by the CI facts step).
+- **First two runs failed on the four Windows PowerShell tests** (`5a010b7`, `9a3e679`); one diagnostic run in between passed. The full output showed the command typed and accepted (`\r` after the line), the prompt already there, and then no output for 30 s. Cause: the first command in a fresh Windows PowerShell on a new image builds its module-analysis cache, which is slow; locally the cache is always warm. PSReadLine is 2.0.0 on both (checked; printed by the CI facts step).
 - Fixes: tests wait for the unlocalized `PS …>` prompt before typing (up to 120 s); a command round trip allows 90 s instead of 30; CI runs a PowerShell warm-up step first. With these the suite passes; the PTY binary still takes ~70 s on the runner against ~8 s locally, so the warm-up helps less than hoped and the 90 s allowance is what carries it.
 - A real hang still fails (each wait is bounded and shows 2,000 characters of output on failure).
+- **CI test durations** (recorded per slice from now on, so a jump stands out). Run `36150995203` on `5f3f30d`, per test binary as reported by the harness: `pty` 70.3 s (locally ~8 s), `sessions` 31.1 s, two others 2.6 s and 1.3 s, the rest under 1 s (the harness output doesn't name the binaries; `scripts/test.ps1` will print names from Slice C on). Slice A had no per-binary record; its baseline is this run.
