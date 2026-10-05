@@ -71,4 +71,5 @@ Each test has its own daemon instance (`--instance`/`--home`), its own UI proces
 
 ## CI
 
-- First CI run with the UI steps: see the run linked from the push of this commit.
+- **Green**: run `37330124720` on `9acaed9` (the first with the UI steps: Node 22.23.1 pinned, `npm ci` + typecheck + build, app crate fmt/clippy/tests), 9 min 23 s in total against ~6 min before. 7 tests not run, each with its reason (unchanged from Slice B).
+- **CI test durations** (named per binary now): `pty` 55.1 s (Slice B: 70.3 s; locally 8.1 s), `sessions` 20.8 s (31.1 s), `lifecycle` 2.6 s, `ipc` 1.3 s, the rest under 1 s.
