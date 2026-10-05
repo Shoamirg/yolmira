@@ -49,10 +49,11 @@ jobs:
         with:
           node-version: "22.23.1"
 
-      - name: UI frontend (install without scripts, typecheck, build)
+      - name: UI frontend (install without scripts, unit tests, typecheck, build)
         working-directory: app
         run: |
           npm ci
+          npm test
           npm run build
 
       - name: UI app crate (format, clippy, unit tests)

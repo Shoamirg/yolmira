@@ -627,7 +627,7 @@ Benchmark rules for projects like AI-TV (`benchmark_before_acceptance`, `no_unme
 | Git | Temp repos: status parsing incl. renames, submodules, detached HEAD, conflicts; verify AMIRI never runs a destructive command without a recorded approval | |
 | Knowledge | Vault fixtures: zone enforcement, concurrent-edit proposal path, wikilink resolution, FTS rebuild | |
 | Policy | Table-driven tests: scope precedence, unknown → ASK, destructive hard-classification | |
-| UI | Smoke tests via `tauri-driver` (WebDriver) on Windows: launch, open terminal, run a command, open a project | |
+| UI | WebDriver tests through WebView2's `msedgedriver` (not `tauri-driver`; decisions.md 2026-10-05) on Windows: launch, open terminal, run a command, open a project, survive UI close/kill and daemon restarts | Local only: the driver must match the installed WebView2 |
 | Packaging | Install on a **clean Windows Sandbox / fresh VM** without dev tools: installer runs per-user without admin, first-run diagnostics correctly report missing Claude/Codex/Git, uninstall leaves user data intact unless chosen | Scripted with a `.wsb` config |
 
 A phase is complete only when its exit criteria (§16) pass on the Windows CI runner and the clean-install test where relevant. "It launches" is never an exit criterion.

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "AMIRI desktop UI (Tauri 2 + React). Versions pinned in docs/phase1-plan.md \u00a75.",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.18"
   },
   "scripts": {
     "dev": "vite",

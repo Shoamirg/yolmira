@@ -25,4 +25,20 @@ Pinned by the committed `Cargo.lock` (123 packages in total at Slice A, includin
 | `base64` | Terminal bytes in JSON-RPC (`session.input`, `session.output`, replay) | Standard; binary-safe | hex (twice the size) | MIT OR Apache-2.0 | 0.23.1 | 2026-09-25 | |
 | `windows-sys` features added in Slice B | `Win32_UI_Shell` + `Win32_System_Com` (known folders), `Win32_Globalization` (UTF-8 console code page) | | | | 0.61.2 | 2026-09-25 | |
 | `tempfile` (dev) | Test data folders | Standard | — | MIT OR Apache-2.0 | 3.27.0 | 2026-09-25 | |
-| `gitleaks` (tool, not a dependency) | Secret scan before pushes | Reviewer's requirement | — | MIT | 8.30.1 | 2026-09-25 | Release zip SHA-256 `d29144de…32afc4e` verified against the published checksums |
+| `gitleaks` (tool, not a dependency) | Secret scan before every push (over the new commits; full history before the first push) | Reviewer's requirement | — | MIT | 8.30.1 | 2026-09-25 | Release zip SHA-256 `d29144de…32afc4e` verified against the published checksums; the extracted `gitleaks.exe` is SHA-256 `17157e2e…4d78fcb7c` (recorded 2026-10-05) |
+
+## Desktop UI (`app/`, Slice C)
+
+npm packages are exact versions (no ranges) and locked by `app/package-lock.json` (registry.npmjs.org, with integrity hashes); `app/.npmrc` turns lifecycle scripts off. The app crate's Tauri crates are `=`-pinned in `app/src-tauri/Cargo.toml` and locked by its own `Cargo.lock`.
+
+| Dependency | Purpose | Reason | Alternatives | License | Pinned | Reviewed | Known behaviour (recheck on upgrade) |
+|---|---|---|---|---|---|---|---|
+| `tauri` / `tauri-build` (+ `tauri-runtime`, `-runtime-wry`, `-macros`, `-utils`, `-codegen`) | Desktop shell over WebView2; commands and events between webview and Rust | §5.1 | Electron (bundles Chromium) | MIT OR Apache-2.0 | 2.11.6 / 2.6.3 (runtime 2.11.3, wry 2.11.4, macros 2.6.3, utils 2.9.3, codegen 2.6.3) | 2026-10-05 | 2.11.6 asks for its sub-crates with caret ranges; a fresh resolve picks 2.12 ones it doesn't compile with, hence the explicit pins. App commands go through the permission system (`AppManifest` in `build.rs`). |
+| `@tauri-apps/api` / `@tauri-apps/cli` (dev) | Frontend side of commands/events; build tool | Matches the Rust side | — | MIT OR Apache-2.0 | 2.11.1 / 2.11.5 | 2026-10-05 | The CLI is a project devDependency (`npx tauri`), not a global install. |
+| `react` / `react-dom` | UI | §5.2 | — | MIT | 19.3.0 | 2026-10-05 | No component library (§5.2). |
+| `zustand` | UI state | Small, no providers | React context | MIT | 5.0.15 | 2026-10-05 | |
+| `@xterm/xterm` / `@xterm/addon-fit` | Terminal rendering | The standard web terminal | — | MIT | 6.0.0 / 0.11.0 | 2026-10-05 | `write(data, callback)` drives flow control; xterm drops input past ~50 MB of pending writes with only a console warning. |
+| `vite` / `@vitejs/plugin-react` (dev) | Build | | | MIT | 8.3.1 / 6.1.1 | 2026-10-05 | |
+| `typescript` (dev) | Type checking | | | Apache-2.0 | 5.9.3 | 2026-10-05 | Not 7.0 (new native compiler, first major) yet. |
+| Node.js (tool) | Builds, unit tests, E2E harness | | | MIT | 22.23.1 (CI pins it; `engines` ≥ 22.18) | 2026-10-05 | `npm test` runs TypeScript directly (type stripping, on by default from 22.18). |
+| `msedgedriver` (tool, E2E only, not shipped) | W3C WebDriver for WebView2: the UI E2E tests attach to each UI's debugging port | Replaces `tauri-driver` (decisions.md 2026-10-05): the tests launch the UI themselves | `tauri-driver` | Microsoft software license terms (proprietary; a developer tool here, never redistributed) | Must equal the installed WebView2: **154.0.4258.53** | 2026-10-05 | `edgedriver_win64.zip` SHA-256 `16ACCCCA…3CAC8D72B` (full value in `app/e2e/fetch-driver.ps1`), plus an Authenticode check (status Valid, signer `O=Microsoft Corporation`). WebView2 updates itself: on a new version the harness fails with *"WebView2 is now X, msedgedriver is Y: update the driver"* until a row is added. |

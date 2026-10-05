@@ -82,7 +82,7 @@ Builds:
   - Screens: session list, terminal tabs (new, attach, detach, kill), and a daemon-disconnected banner with automatic reconnect.
   - No component library (§5.2).
 
-Exit tests (`app/e2e/`, WebDriver through `tauri-driver`):
+Exit tests (`app/e2e/`, WebDriver through WebView2's `msedgedriver`; not `tauri-driver`, see decisions.md 2026-10-05):
 
 | Test | Proves |
 |---|---|
@@ -183,8 +183,7 @@ Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); AMIRI
 | `typescript` | 5.9.3 | C | Not 7.0 (new native compiler, first major); revisit later |
 | `@xterm/xterm` / `@xterm/addon-fit` | 6.0.0 / 0.11.0 | C | |
 | `zustand` | 5.0.15 | C | |
-| `tauri-driver` (tool) | 2.0.6 | C | `cargo install --locked` for the E2E tests only |
-| `msedgedriver` (tool) | must match WebView2 (153.0.4234.48 now) | C | Downloaded from Microsoft; version and SHA-256 recorded |
+| `msedgedriver` (tool) | must match WebView2 (154.0.4258.53 at Slice C) | C | Downloaded from Microsoft by `app/e2e/fetch-driver.ps1`; version, zip SHA-256 and signature checked. Drives the E2E tests directly (no `tauri-driver`) |
 
 Downloads for slice C are pinned, with SHA-256 recorded. WebView2 updates itself, so the E2E harness first compares the installed WebView2 version with `msedgedriver --version`. On a mismatch it fails with *"WebView2 is now X, msedgedriver is Y: update the driver"*, not with a WebDriver error.
 
