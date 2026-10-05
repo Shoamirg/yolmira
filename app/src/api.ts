@@ -35,8 +35,11 @@ export type SessionInfo = {
 
 export type ShellKind = "cmd" | "powershell" | "pwsh" | "wsl";
 
-/** Feed events carry the generation of the attachment they belong to. */
-export type SessionOutput = { id: string; data: string; reset: boolean; generation: number };
+/**
+ * Feed events carry the generation of the attachment they belong to. Output also
+ * carries a flow-control credit, returned with `sessionAck` once xterm has written it.
+ */
+export type SessionOutput = { id: string; data: string; reset: boolean; generation: number; credit: number };
 export type SessionExited = { id: string; exit_code: number | null; generation: number };
 export type FeedClosed = { id: string; why: string; generation: number };
 export type DaemonEvent = { seq: number; kind: string; session_id: string | null };
@@ -48,6 +51,8 @@ export const api = {
   sessionCreate: (kind: ShellKind, cols: number, rows: number) =>
     invoke<SessionInfo>("session_create", { kind, cols, rows }),
   sessionAttach: (id: string, generation: number) => invoke<unknown>("session_attach", { id, generation }),
+  sessionAck: (id: string, generation: number, credit: number) =>
+    invoke<void>("session_ack", { id, generation, credit }),
   sessionDetach: (id: string) => invoke<void>("session_detach", { id }),
   sessionInput: (id: string, data: string) => invoke<void>("session_input", { id, data }),
   sessionResize: (id: string, cols: number, rows: number) =>

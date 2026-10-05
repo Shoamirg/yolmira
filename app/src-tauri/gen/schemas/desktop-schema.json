@@ -189,6 +189,12 @@
           "markdownDescription": "Enables the daemon_state command without any pre-configured scope."
         },
         {
+          "description": "Enables the session_ack command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-session-ack",
+          "markdownDescription": "Enables the session_ack command without any pre-configured scope."
+        },
+        {
           "description": "Enables the session_attach command without any pre-configured scope.",
           "type": "string",
           "const": "allow-session-attach",
@@ -241,6 +247,12 @@
           "type": "string",
           "const": "deny-daemon-state",
           "markdownDescription": "Denies the daemon_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the session_ack command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-session-ack",
+          "markdownDescription": "Denies the session_ack command without any pre-configured scope."
         },
         {
           "description": "Denies the session_attach command without any pre-configured scope.",

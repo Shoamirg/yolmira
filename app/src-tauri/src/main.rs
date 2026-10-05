@@ -18,8 +18,32 @@ use tauri::webview::NewWindowResponse;
 use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
 
 /// Tests give each UI its own WebView2 data folder, so two windows get two browser
-/// processes (and two debugging ports). Unset for normal use.
+/// processes (and two debugging ports). Read only by debug builds.
+#[cfg(debug_assertions)]
 const WEBVIEW_DATA_ENV: &str = "AMIRI_UI_WEBVIEW_DATA";
+
+/// WebView2 configures itself from `WEBVIEW2_*` variables: browser arguments (e.g. an
+/// unauthenticated remote-debugging port, which can drive the session commands), the
+/// browser folder, the data folder. The E2E tests rely on that in debug builds; a
+/// release build takes none of them from its environment.
+#[cfg(any(test, not(debug_assertions)))]
+fn is_webview2_override(name: &str) -> bool {
+    name.get(..9)
+        .is_some_and(|p| p.eq_ignore_ascii_case("WEBVIEW2_"))
+}
+
+#[cfg(not(debug_assertions))]
+fn drop_webview2_overrides() {
+    let names: Vec<_> = std::env::vars_os()
+        .filter_map(|(k, _)| k.into_string().ok())
+        .filter(|k| is_webview2_override(k))
+        .collect();
+    for name in names {
+        // Called first thing in main, before any other thread exists.
+        std::env::remove_var(name);
+    }
+}
+
 /// `npm run tauri dev` serves the frontend here (tauri.conf.json `devUrl`).
 const DEV_ORIGIN: (&str, u16) = ("127.0.0.1", 5173);
 
@@ -76,6 +100,8 @@ fn fatal(e: &AmiriError) {
 }
 
 fn main() {
+    #[cfg(not(debug_assertions))]
+    drop_webview2_overrides();
     let instance = resolve_instance();
     let log = init_logging(&instance);
     let daemon = Daemon::new(instance);
@@ -88,22 +114,25 @@ fn main() {
             commands::session_list,
             commands::session_create,
             commands::session_attach,
+            commands::session_ack,
             commands::session_detach,
             commands::session_input,
             commands::session_resize,
             commands::session_kill,
         ])
         .setup(move |app| {
-            let mut window =
+            let window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("AMIRI")
                     .inner_size(1240.0, 780.0)
                     .min_inner_size(720.0, 420.0)
                     .on_navigation(is_app_url)
                     .on_new_window(|_, _| NewWindowResponse::Deny);
-            if let Some(dir) = std::env::var_os(WEBVIEW_DATA_ENV) {
-                window = window.data_directory(dir.into());
-            }
+            #[cfg(debug_assertions)]
+            let window = match std::env::var_os(WEBVIEW_DATA_ENV) {
+                Some(dir) => window.data_directory(dir.into()),
+                None => window,
+            };
             window.build()?;
             daemon::supervise(app.handle().clone(), for_setup);
             Ok(())
@@ -132,5 +161,16 @@ mod tests {
         assert!(!ok("file:///C:/Windows/System32/"));
         assert!(!ok("ms-msdt:/id"));
         assert!(!ok("http://tauri.localhost.example.com/"));
+    }
+
+    #[test]
+    fn webview2_overrides_are_recognised_in_any_case() {
+        assert!(is_webview2_override(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+        ));
+        assert!(is_webview2_override("webview2_browser_executable_folder"));
+        assert!(!is_webview2_override("WEBVIEW2"));
+        assert!(!is_webview2_override("AMIRI_UI_WEBVIEW_DATA"));
+        assert!(!is_webview2_override("Ж")); // non-ASCII: no slicing panic
     }
 }

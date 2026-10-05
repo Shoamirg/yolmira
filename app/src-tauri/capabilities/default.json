@@ -12,6 +12,7 @@
     "allow-session-list",
     "allow-session-create",
     "allow-session-attach",
+    "allow-session-ack",
     "allow-session-detach",
     "allow-session-input",
     "allow-session-resize",

@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "session_list",
     "session_create",
     "session_attach",
+    "session_ack",
     "session_detach",
     "session_input",
     "session_resize",

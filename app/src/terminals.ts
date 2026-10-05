@@ -58,11 +58,12 @@ export function getTerminal(id: string): Entry | undefined {
   return entries.get(id);
 }
 
-export function writeOutput(id: string, data: string, reset: boolean): void {
+/** `written` runs once xterm has processed the data (flow control: see daemon.rs). */
+export function writeOutput(id: string, data: string, reset: boolean, written: () => void): void {
   const e = entries.get(id);
-  if (!e) return;
+  if (!e) return written();
   if (reset) e.term.write(RESET);
-  e.term.write(decodeBase64(data));
+  e.term.write(decodeBase64(data), written);
 }
 
 export function disposeTerminal(id: string): void {

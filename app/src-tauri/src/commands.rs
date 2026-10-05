@@ -103,6 +103,14 @@ pub async fn session_attach(
     daemon.attach(&app, id, generation).await
 }
 
+/// Flow control: the terminal has written `credit` bytes of this attachment's output.
+#[tauri::command]
+pub fn session_ack(daemon: DaemonRef<'_>, id: String, generation: u32, credit: u32) -> Res<()> {
+    valid_id("Acknowledge shell output", &id)?;
+    daemon.ack(&id, generation, credit as usize);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn session_detach(daemon: DaemonRef<'_>, id: String) -> Res<()> {
     valid_id("Detach from the shell", &id)?;

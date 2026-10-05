@@ -8,6 +8,10 @@
 //! - One **feed** connection per attached session carries its output, read by its own
 //!   task, as in `amiri shell attach`. Each attachment has a generation chosen by the
 //!   frontend; every event carries it, so output from a replaced feed is ignored.
+//! - **Flow control:** a feed stops reading while more than [`FLOW_WINDOW`] bytes of
+//!   its output wait to be written by the terminal; the frontend acknowledges them
+//!   (`session_ack`). The daemon then sees a slow attachment, and when it falls behind
+//!   it resends the scrollback (reset + snapshot, at most 2 MiB): memory stays bounded.
 //!
 //! The UI starts the daemon once at launch (`ensure_daemon`, like the CLI) and on the
 //! banner's Start button. It never stops it: closing or killing the UI leaves the
@@ -26,9 +30,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 
 const START_TIMEOUT: Duration = Duration::from_secs(10);
+/// Opening a feed: connect plus the attach call (whose replay is streamed afterwards).
+const ATTACH_TIMEOUT: Duration = Duration::from_secs(15);
+/// Unacknowledged output per feed, in bytes of the events' base64 data.
+pub const FLOW_WINDOW: usize = 1024 * 1024;
 const RECONNECT_EVERY: Duration = Duration::from_secs(1);
 const CLIENT_MONITOR: &str = "amiri-ui-monitor";
 const CLIENT_CONTROL: &str = "amiri-ui";
@@ -61,28 +69,50 @@ struct Tagged<T> {
     generation: u32,
 }
 
+/// Output, with the credit the frontend returns once the terminal has written it.
+#[derive(Debug, Clone, Serialize)]
+struct Credited {
+    #[serde(flatten)]
+    out: SessionOutput,
+    credit: u32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct FeedClosed {
     id: String,
     why: String,
 }
 
-type Control = Arc<tokio::sync::Mutex<Client>>;
+/// One control connection. `broken` belongs to it, so a signal left over from an old
+/// connection can never end a newer one.
+struct Link {
+    client: tokio::sync::Mutex<Client>,
+    broken: Notify,
+}
 
 /// The attachment a session currently should have. `task` is `None` while it connects.
 struct Feed {
     generation: u32,
     task: Option<JoinHandle<()>>,
+    /// Bytes the feed may still emit before the frontend acknowledges some.
+    flow: Arc<Semaphore>,
+}
+
+impl Feed {
+    fn stop(self) {
+        if let Some(task) = self.task {
+            task.abort();
+        }
+    }
 }
 
 pub struct Daemon {
     instance: Result<Instance, AmiriError>,
-    /// Swapped without waiting, so a hung call never delays a disconnect.
-    control: Mutex<Option<Control>>,
+    /// Swapped without waiting, so a hung call never delays a disconnect. Lock order
+    /// where both are held: `feeds`, then `control`.
+    control: Mutex<Option<Arc<Link>>>,
     feeds: Mutex<HashMap<String, Feed>>,
     state: Mutex<DaemonState>,
-    /// A control call broke the connection: the supervisor reconnects.
-    broken: Notify,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -113,7 +143,6 @@ impl Daemon {
             control: Mutex::new(None),
             feeds: Mutex::new(HashMap::new()),
             state: Mutex::new(state),
-            broken: Notify::new(),
         })
     }
 
@@ -166,8 +195,21 @@ impl Daemon {
         Ok(launched.hello().clone())
     }
 
+    fn link(&self) -> Option<Arc<Link>> {
+        lock(&self.control).clone()
+    }
+
+    fn is_current(&self, link: &Arc<Link>) -> bool {
+        lock(&self.control)
+            .as_ref()
+            .is_some_and(|c| Arc::ptr_eq(c, link))
+    }
+
     /// Open the monitor (subscribed to new events) and the control connection.
-    async fn connect(&self, instance: &Instance) -> Result<(Client, HelloResult), ClientError> {
+    async fn connect(
+        &self,
+        instance: &Instance,
+    ) -> Result<(Client, HelloResult, Arc<Link>), ClientError> {
         let mut monitor = Client::connect(instance, CLIENT_MONITOR).await?;
         let _: Value = monitor
             .call(
@@ -177,76 +219,87 @@ impl Daemon {
             .await?;
         let control = Client::connect(instance, CLIENT_CONTROL).await?;
         let hello = control.hello.clone();
-        *lock(&self.control) = Some(Arc::new(tokio::sync::Mutex::new(control)));
-        Ok((monitor, hello))
+        let link = Arc::new(Link {
+            client: tokio::sync::Mutex::new(control),
+            broken: Notify::new(),
+        });
+        *lock(&self.control) = Some(Arc::clone(&link));
+        Ok((monitor, hello, link))
     }
 
     /// Drop the control link and stop every feed. Never waits on an in-flight call.
     fn on_disconnect(&self) {
         *lock(&self.control) = None;
         for (_, feed) in lock(&self.feeds).drain() {
-            if let Some(task) = feed.task {
-                task.abort();
-            }
+            feed.stop();
         }
     }
 
     /// One request on the control connection.
     pub async fn call(&self, what: &str, method: &str, params: Value) -> Result<Value, AmiriError> {
-        let control = lock(&self.control)
-            .clone()
-            .ok_or_else(|| not_connected(what))?;
-        let result = control.lock().await.call_value(method, params).await;
+        let link = self.link().ok_or_else(|| not_connected(what))?;
+        let mut client = link.client.lock().await;
+        // Queued behind a call that broke this connection: fail now rather than wait
+        // out another timeout on it.
+        if !self.is_current(&link) {
+            return Err(not_connected(what));
+        }
+        let result = client.call_value(method, params).await;
+        drop(client);
         result.map_err(|e| {
             if breaks_connection(&e) {
                 // Only if no reconnect replaced it meanwhile.
                 let mut slot = lock(&self.control);
-                if slot.as_ref().is_some_and(|c| Arc::ptr_eq(c, &control)) {
+                if slot.as_ref().is_some_and(|c| Arc::ptr_eq(c, &link)) {
                     *slot = None;
-                    self.broken.notify_one();
                 }
+                link.broken.notify_one();
             }
             client_error(what, e)
         })
     }
 
     /// Attach on a new feed connection; output goes to the frontend as events tagged
-    /// with `generation`. A newer attach or a detach meanwhile wins.
+    /// with `generation`. A newer attach, a detach or a disconnect meanwhile wins.
     pub async fn attach(
-        &self,
+        self: &Arc<Self>,
         app: &AppHandle,
         id: String,
         generation: u32,
     ) -> Result<Value, AmiriError> {
         const WHAT: &str = "Attach to the shell";
         let instance = self.instance()?;
-        if !self.state().connected {
-            return Err(not_connected(WHAT));
-        }
-        if let Some(old) = lock(&self.feeds).insert(
-            id.clone(),
-            Feed {
+        let flow = Arc::new(Semaphore::new(FLOW_WINDOW));
+        let link = {
+            // The link is read under the feeds lock: a disconnect clears the link before
+            // it drains the feeds, so it either removes this entry or this sees no link.
+            let mut feeds = lock(&self.feeds);
+            let link = self.link().ok_or_else(|| not_connected(WHAT))?;
+            let placeholder = Feed {
                 generation,
                 task: None,
-            },
-        ) {
-            if let Some(task) = old.task {
-                task.abort();
+                flow: Arc::clone(&flow),
+            };
+            if let Some(old) = feeds.insert(id.clone(), placeholder) {
+                old.stop();
             }
-        }
-        let mut feed = Client::connect(instance, CLIENT_FEED)
+            link
+        };
+        let opened = tokio::time::timeout(ATTACH_TIMEOUT, open_feed(instance, &id))
             .await
-            .map_err(|e| client_error(WHAT, e))?;
-        let result = feed
-            .call_value(methods::SESSION_ATTACH, json!({ "id": id }))
-            .await
-            .map_err(|e| client_error(WHAT, e))?;
+            .unwrap_or(Err(ClientError::Timeout));
+        let (feed, result) = match opened {
+            Ok(x) => x,
+            Err(e) => {
+                self.forget(&id, generation);
+                return Err(client_error(WHAT, e));
+            }
+        };
         let mut feeds = lock(&self.feeds);
         match feeds.get_mut(&id) {
-            Some(f) if f.generation == generation => {
-                let task =
-                    tauri::async_runtime::spawn(read_feed(app.clone(), id, generation, feed));
-                f.task = Some(task);
+            Some(f) if f.generation == generation && self.is_current(&link) => {
+                let reader = read_feed(app.clone(), Arc::clone(self), id, generation, feed, flow);
+                f.task = Some(tauri::async_runtime::spawn(reader));
                 Ok(result)
             }
             // Detached, replaced or disconnected while connecting: dropping `feed` detaches.
@@ -257,30 +310,68 @@ impl Daemon {
 
     /// Dropping the feed connection detaches; the shell keeps running.
     pub fn detach(&self, id: &str) {
-        if let Some(Feed {
-            task: Some(task), ..
-        }) = lock(&self.feeds).remove(id)
-        {
-            task.abort();
+        if let Some(feed) = lock(&self.feeds).remove(id) {
+            feed.stop();
+        }
+    }
+
+    /// The terminal has written `credit` bytes of this attachment's output.
+    pub fn ack(&self, id: &str, generation: u32, credit: usize) {
+        if let Some(f) = lock(&self.feeds).get(id) {
+            if f.generation == generation {
+                f.flow.add_permits(credit.min(FLOW_WINDOW));
+            }
+        }
+    }
+
+    /// Remove the entry if it still belongs to this attachment, without aborting it:
+    /// the caller is that attachment ending, or one that never started.
+    fn forget(&self, id: &str, generation: u32) {
+        let mut feeds = lock(&self.feeds);
+        if feeds.get(id).is_some_and(|f| f.generation == generation) {
+            feeds.remove(id);
         }
     }
 }
 
+async fn open_feed(instance: &Instance, id: &str) -> Result<(Client, Value), ClientError> {
+    let mut feed = Client::connect(instance, CLIENT_FEED).await?;
+    let result = feed
+        .call_value(methods::SESSION_ATTACH, json!({ "id": id }))
+        .await?;
+    Ok((feed, result))
+}
+
 /// Forward one session's output until it exits or the connection ends.
-async fn read_feed(app: AppHandle, id: String, generation: u32, mut feed: Client) {
-    let tag = |inner| Tagged { inner, generation };
+async fn read_feed(
+    app: AppHandle,
+    daemon: Arc<Daemon>,
+    id: String,
+    generation: u32,
+    mut feed: Client,
+    flow: Arc<Semaphore>,
+) {
     let why = loop {
         match feed.next_notification().await {
             Ok(n) if n.method == notifications::SESSION_OUTPUT => {
                 match serde_json::from_value::<SessionOutput>(n.params) {
-                    Ok(out) => emit(
-                        &app,
-                        ui_events::SESSION_OUTPUT,
-                        Tagged {
-                            inner: out,
-                            generation,
-                        },
-                    ),
+                    Ok(out) => {
+                        let credit = out.data.len().clamp(1, FLOW_WINDOW) as u32;
+                        // Wait for the terminal to catch up; meanwhile this connection
+                        // isn't read, and the daemon treats the attachment as slow.
+                        match flow.acquire_many(credit).await {
+                            Ok(permit) => permit.forget(),
+                            Err(_) => break "flow control closed".into(),
+                        }
+                        emit(
+                            &app,
+                            ui_events::SESSION_OUTPUT,
+                            Tagged {
+                                inner: Credited { out, credit },
+                                generation,
+                            },
+                        );
+                    }
                     // The error text could quote terminal bytes: log only its category.
                     Err(e) => break format!("malformed output notification ({:?})", e.classify()),
                 }
@@ -303,10 +394,14 @@ async fn read_feed(app: AppHandle, id: String, generation: u32, mut feed: Client
             Err(e) => break e.to_string(),
         }
     };
+    daemon.forget(&id, generation);
     emit(
         &app,
         ui_events::SESSION_FEED_CLOSED,
-        tag(FeedClosed { id, why }),
+        Tagged {
+            inner: FeedClosed { id, why },
+            generation,
+        },
     );
 }
 
@@ -330,8 +425,8 @@ pub fn supervise(app: AppHandle, daemon: Arc<Daemon>) {
         }
         loop {
             match daemon.connect(&instance).await {
-                Ok((monitor, hello)) => {
-                    stay_connected(&app, &daemon, &instance, monitor, hello).await
+                Ok((monitor, hello, link)) => {
+                    stay_connected(&app, &daemon, &instance, monitor, hello, &link).await
                 }
                 Err(e) => connect_failed(&app, &daemon, e),
             }
@@ -346,6 +441,7 @@ async fn stay_connected(
     instance: &Instance,
     monitor: Client,
     hello: HelloResult,
+    link: &Link,
 ) {
     let up = DaemonState {
         connected: true,
@@ -357,7 +453,7 @@ async fn stay_connected(
     daemon.set_state(app, up);
     let why = tokio::select! {
         why = follow(app, monitor) => why,
-        () = daemon.broken.notified() => AmiriError::new(
+        () = link.broken.notified() => AmiriError::new(
             "Stay connected to the AMIRI daemon", "ui", "a request failed mid-way; reconnecting",
         ).next_step("Retry the last action once the UI has reconnected."),
     };

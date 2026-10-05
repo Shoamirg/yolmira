@@ -24,6 +24,8 @@ export const TerminalPane = memo(function TerminalPane({ id, visible }: Props) {
 
     const showError = useStore.getState().showError;
     const onData = term.onData((d) => {
+      // Only a live feed takes input; otherwise the pane's note says why it doesn't.
+      if (useStore.getState().tabs.find((t) => t.id === id)?.feed !== "live") return;
       queueInput(id, d, (c) => api.sessionInput(id, c)).catch((e) => showError(e, "Send input to the shell"));
     });
     let timer: number | undefined;
@@ -50,7 +52,9 @@ export const TerminalPane = memo(function TerminalPane({ id, visible }: Props) {
     if (!visible) return;
     const t = ensureTerminal(id);
     t.fit.fit();
-    t.term.focus();
+    // Not while the user moves through the tab bar with the arrow keys: those would
+    // reach the shell. Enter on a tab moves focus into its terminal.
+    if (!document.activeElement?.closest('[role="tablist"]')) t.term.focus();
   }, [id, visible]);
 
   return <div className="terminal-host" data-testid="terminal" data-session-id={id} ref={host} />;

@@ -18,7 +18,7 @@ export const APP_EXE = join(ROOT, "target", "debug", "amiri-app.exe");
 export const CLI_EXE = join(ROOT, "target", "debug", "amiri.exe");
 const DAEMON_EXE = join(ROOT, "target", "debug", "amirid.exe");
 /** WebDriver's Enter key (W3C key code point U+E007). */
-const KEY_ENTER = "";
+const KEY_ENTER = "\uE007";
 /** Upper bound for one WebDriver or devtools HTTP request. */
 const HTTP_TIMEOUT_MS = 30_000;
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -226,7 +226,11 @@ export class Ui {
       "const rows = document.querySelector(`[data-testid=terminal][data-session-id=\"${arguments[0]}\"] .xterm-rows`); return rows ? [...rows.children].map(r => r.textContent) : []",
       id,
     );
-    return text.map((l) => l.replaceAll(" ", " ").trim());
+    return text.map((l) => l.replaceAll("\u00A0", " ").trim());
+  }
+  /** How many visible rows of the session equal `line` (a replay must not repeat). */
+  async countLine(id, line) {
+    return (await this.lines(id)).filter((l) => l === line).length;
   }
   waitLine(id, line, timeoutMs) {
     return waitFor(`line ${JSON.stringify(line)} in session ${id}`, async () => (await this.lines(id)).includes(line) || false, timeoutMs);
@@ -266,6 +270,7 @@ export class Ui {
     if (isAlive(this.pid)) killPid(this.pid);
     await waitFor("the UI process to die", () => !isAlive(this.pid), 15_000);
   }
+  /** Throws if the WebView2 data folder can't be removed: a leak must fail the run. */
   async dispose() {
     await this.dropSession();
     for (const pid of [this.pid, this.consolePid]) if (pid && isAlive(pid)) killPid(pid);
@@ -274,8 +279,31 @@ export class Ui {
       await waitFor("the WebView2 data folder to free", () => {
         rmSync(this.webviewData, { recursive: true, force: true });
         return !existsSync(this.webviewData);
-      }, 15_000, 300).catch((e) => console.error(String(e)));
+      }, 15_000, 300);
     }
+  }
+
+  /**
+   * Record every rendered state of the daemon chip and the session rows from now on
+   * (a MutationObserver sees each React commit, so a brief wrong status can't slip
+   * between two polls). Read it back with `recorded()`.
+   */
+  startRecording() {
+    return this.exec(`
+      const seen = (window.__amiriSeen = []);
+      const snap = () => seen.push({
+        connected: document.querySelector('.daemon-chip')?.dataset.connected === 'true',
+        rows: [...document.querySelectorAll('[data-testid=session-row]')].map((r) => [r.dataset.sessionId, r.dataset.sessionStatus]),
+      });
+      snap();
+      new MutationObserver(snap).observe(document.body, {
+        subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ['data-session-status', 'data-connected'],
+      });
+    `);
+  }
+  recorded() {
+    return this.exec("return window.__amiriSeen ?? []");
   }
 }
 

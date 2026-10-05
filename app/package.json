@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "build:app": "tauri build --debug --no-bundle",
-    "e2e": "node --test --test-concurrency=1 e2e/*.test.mjs",
+    "e2e": "node --test --test-concurrency=1 --test-timeout=600000 e2e/*.test.mjs",
     "pree2e": "npm run build:app && cargo build --locked --manifest-path ../Cargo.toml -p amiri"
   },
   "dependencies": {

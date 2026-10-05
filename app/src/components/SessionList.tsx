@@ -50,6 +50,7 @@ export function SessionList() {
         <ul>
           {sessions.map((s) => {
             const status = shownStatus(s, known);
+            const label = `${s.shell} ${shortId(s.id)}`;
             return (
               <li key={s.id} className="session-row" data-testid="session-row" data-session-id={s.id} data-session-status={status}>
                 <span className="status" data-status={status}>{status}</span>
@@ -58,10 +59,10 @@ export function SessionList() {
                 </span>
                 <span className="row-actions">
                   {status === "RUNNING" && !open.has(s.id) && (
-                    <button type="button" className="btn btn-quiet" onClick={() => void attach(s.id)} data-testid="attach">Attach</button>
+                    <button type="button" className="btn btn-quiet" onClick={() => void attach(s.id)} aria-label={`Attach to ${label}`} data-testid="attach">Attach</button>
                   )}
                   {status === "RUNNING" && (
-                    <button type="button" className="btn btn-quiet btn-danger" onClick={() => void kill(s.id)} data-testid="kill">Kill</button>
+                    <button type="button" className="btn btn-quiet btn-danger" onClick={() => void kill(s.id)} aria-label={`Kill ${label}`} data-testid="kill">Kill</button>
                   )}
                   {status === "EXITED" && <span className="mono dim">exit {s.exit_code ?? "?"}</span>}
                 </span>

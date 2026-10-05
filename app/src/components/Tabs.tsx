@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
+import { getTerminal } from "../terminals";
 import { TerminalPane } from "./TerminalPane";
 
 const FEED_LABEL = { attaching: "attaching", live: "live", closed: "detached", exited: "exited" } as const;
@@ -18,8 +19,13 @@ export function Tabs() {
     );
   }
   const name = (id: string) => `${sessions.find((s) => s.id === id)?.shell ?? "shell"} ${id.slice(-6)}`;
-  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+  // Arrow keys move between tabs (WAI-ARIA tabs pattern); Enter goes into the terminal.
   const onKeyDown = (e: KeyboardEvent, index: number) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      getTerminal(tabs[index]?.id ?? "")?.term.focus();
+      return;
+    }
     const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!step) return;
     const next = tabs[(index + step + tabs.length) % tabs.length];
@@ -28,11 +34,19 @@ export function Tabs() {
       document.getElementById(`tab-${next.id}`)?.focus();
     }
   };
+  // The closed tab's button had focus: hand it to the tab that is now active.
+  const detach = (id: string) => {
+    void closeTab(id);
+    requestAnimationFrame(() => {
+      const next = useStore.getState().active;
+      if (next) document.getElementById(`tab-${next}`)?.focus();
+    });
+  };
   return (
     <main className="workspace">
       <div className="tab-bar" role="tablist" aria-label="Attached shells">
         {tabs.map((t, i) => (
-          <div key={t.id} className="tab" data-testid="tab" data-session-id={t.id} data-feed={t.feed} data-selected={t.id === active}>
+          <div key={t.id} className="tab" role="presentation" data-testid="tab" data-session-id={t.id} data-feed={t.feed} data-selected={t.id === active}>
             <button
               type="button"
               id={`tab-${t.id}`}
@@ -53,7 +67,7 @@ export function Tabs() {
               className="tab-close"
               title="Detach (the shell keeps running)"
               aria-label={`Detach ${name(t.id)} (it keeps running)`}
-              onClick={() => void closeTab(t.id)}
+              onClick={() => detach(t.id)}
               data-testid="detach"
             >
               ×
@@ -64,7 +78,7 @@ export function Tabs() {
       <div className="panes">
         {tabs.map((t) => (
           <div key={t.id} id={`pane-${t.id}`} className="pane" role="tabpanel" aria-labelledby={`tab-${t.id}`} hidden={t.id !== active}>
-            {t.feed !== "live" && <div className="pane-note">{t.note ?? FEED_LABEL[t.feed]}</div>}
+            {t.feed !== "live" && <div className="pane-note" role="status">{t.note ?? FEED_LABEL[t.feed]}</div>}
             <TerminalPane id={t.id} visible={t.id === active} />
           </div>
         ))}

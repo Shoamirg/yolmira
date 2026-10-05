@@ -12,6 +12,7 @@ function useDaemonLink() {
   useEffect(() => {
     let cancelled = false;
     let refresh: number | undefined;
+    let sawState = false;
     const store = useStore.getState;
     const scheduleRefresh = () => {
       window.clearTimeout(refresh);
@@ -20,7 +21,10 @@ function useDaemonLink() {
     // Handlers check `cancelled`, so a second listener set (StrictMode's double mount
     // in development) never handles an event twice.
     const unsubscribe = subscribe({
-      daemonState: (d) => !cancelled && store().setDaemon(d),
+      daemonState: (d) => {
+        sawState = true;
+        if (!cancelled) store().setDaemon(d);
+      },
       daemonEvent: (e) => {
         if (!cancelled && e.kind.startsWith("session.")) scheduleRefresh();
       },
@@ -33,7 +37,7 @@ function useDaemonLink() {
     unsubscribe
       .then(() => api.daemonState())
       .then((d) => {
-        if (!cancelled && !store().daemon.connected) store().setDaemon(d);
+        if (!cancelled && !sawState) store().setDaemon(d);
       })
       .catch((e) => store().showError(e, "Connect the UI to its backend"));
     return () => {

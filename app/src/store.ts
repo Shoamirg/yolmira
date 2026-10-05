@@ -50,6 +50,13 @@ export function shownStatus(s: SessionInfo, known: boolean): SessionStatus {
 }
 
 let nextGeneration = 1;
+/** Bumped on every connect, disconnect or daemon change: a list fetched before is stale. */
+let connEpoch = 0;
+/** The latest list request; an older one that returns later is dropped. */
+let listSeq = 0;
+
+const sameDaemon = (a: DaemonState, b: DaemonState) =>
+  a.connected === b.connected && a.pid === b.pid && a.instance === b.instance;
 
 export const useStore = create<Store>((set, get) => {
   const fail = (what: string) => (e: unknown) => get().showError(e, what);
@@ -67,24 +74,28 @@ export const useStore = create<Store>((set, get) => {
     active: null,
     error: null,
 
+    // A different daemon (even without a disconnect in between) counts as one: its
+    // feeds are gone and its list must be reloaded before anything shows RUNNING.
     setDaemon: (d) => {
-      const wasConnected = get().daemon.connected;
-      set({ daemon: d });
-      if (!d.connected) {
-        set((s) => ({
-          sessionsFresh: false,
-          tabs: s.tabs.map((t) => (t.feed === "exited" ? t : { ...t, feed: "closed", note: "daemon unreachable" })),
-        }));
-        return;
-      }
-      if (!wasConnected) void get().resume();
+      const prev = get().daemon;
+      if (sameDaemon(prev, d)) return set({ daemon: d });
+      connEpoch++;
+      set((s) => ({
+        daemon: d,
+        sessionsFresh: false,
+        tabs: prev.connected
+          ? s.tabs.map((t) => (t.feed === "exited" ? t : { ...t, feed: "closed", note: "daemon unreachable" }))
+          : s.tabs,
+      }));
+      if (d.connected) void get().resume();
     },
 
     // Reconnected: reload the list, then reattach the tabs whose shell still runs
     // (the replay restores their screens). A daemon restart ends local shells (D3).
     resume: async () => {
+      const epoch = connEpoch;
       await get().refreshSessions();
-      if (!get().sessionsFresh) return;
+      if (!get().sessionsFresh || epoch !== connEpoch) return;
       const running = new Set(get().sessions.filter((s) => s.status === "RUNNING").map((s) => s.id));
       for (const t of get().tabs.filter((t) => t.feed === "closed")) {
         if (running.has(t.id)) void get().attach(t.id, { focus: false });
@@ -94,9 +105,11 @@ export const useStore = create<Store>((set, get) => {
 
     refreshSessions: async () => {
       if (!get().daemon.connected) return;
+      const epoch = connEpoch;
+      const seq = ++listSeq;
       try {
         const sessions = await api.sessionList();
-        if (get().daemon.connected) set({ sessions, sessionsFresh: true });
+        if (epoch === connEpoch && seq === listSeq) set({ sessions, sessionsFresh: true });
       } catch (e) {
         fail("List shells")(e);
       }
@@ -146,7 +159,8 @@ export const useStore = create<Store>((set, get) => {
         return { tabs, active };
       });
       disposeTerminal(id);
-      await api.sessionDetach(id).catch(fail("Detach from the shell"));
+      // While the daemon is down there is no feed to detach.
+      if (get().daemon.connected) await api.sessionDetach(id).catch(fail("Detach from the shell"));
     },
 
     kill: async (id) => {
@@ -160,7 +174,9 @@ export const useStore = create<Store>((set, get) => {
     setActive: (id) => set({ active: id }),
 
     onOutput: (o) => {
-      if (current(o.id, o.generation)) writeOutput(o.id, o.data, o.reset);
+      if (!current(o.id, o.generation)) return;
+      // An ack can only fail when the feed is already gone; nothing is waiting for it then.
+      writeOutput(o.id, o.data, o.reset, () => void api.sessionAck(o.id, o.generation, o.credit).catch(() => {}));
     },
     onExited: (e) => {
       if (current(e.id, e.generation)) updateTab(e.id, { feed: "exited", note: `exited with code ${e.exit_code ?? "?"}` });
