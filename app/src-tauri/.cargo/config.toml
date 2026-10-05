@@ -1,0 +1,3 @@
+# Share the repository's target folder: amiri-app.exe must sit next to amirid.exe.
+[build]
+target-dir = "../../target"

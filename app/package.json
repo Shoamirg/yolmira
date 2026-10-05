@@ -1,0 +1,35 @@
+{
+  "name": "amiri-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AMIRI desktop UI (Tauri 2 + React). Versions pinned in docs/phase1-plan.md \u00a75.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "build:app": "tauri build --debug --no-bundle",
+    "e2e": "node --test --test-concurrency=1 e2e/*.test.mjs",
+    "pree2e": "npm run build:app && cargo build --locked --manifest-path ../Cargo.toml -p amiri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.1"
+  }
+}

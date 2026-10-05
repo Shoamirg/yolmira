@@ -22,17 +22,24 @@ try {
         Sort-Object -Unique
     $failed = @()
     $notRun = @()
+    $durations = @()
     foreach ($exe in $exes) {
         Write-Host "== $exe"
         $testArgs = @()
         if ($Filter) { $testArgs += $Filter }
         # cmd merges stderr into stdout as plain text (PowerShell 5.1 would wrap it in error records).
+        $watch = [Diagnostics.Stopwatch]::StartNew()
         $out = & cmd /d /c "`"$exe`" $($testArgs -join ' ') 2>&1"
         $code = $LASTEXITCODE
+        # Binary name without cargo's hash suffix, e.g. pty-3f2a9c... -> pty.
+        $name = [IO.Path]::GetFileNameWithoutExtension($exe) -replace '-[0-9a-f]{16}$', ''
+        $durations += '{0,-14} {1,7:N1} s  exit {2}' -f $name, $watch.Elapsed.TotalSeconds, $code
         $out | ForEach-Object { Write-Host $_ }
         $notRun += $out | Where-Object { $_ -match '^NOT RUN' }
         if ($code -ne 0) { $failed += $exe }
     }
+    Write-Host "Durations per test binary:"
+    $durations | ForEach-Object { Write-Host "  $_" }
     if ($notRun.Count -gt 0) {
         Write-Host "Not run in this environment ($($notRun.Count)):"
         $notRun | ForEach-Object { Write-Host "  $_" }

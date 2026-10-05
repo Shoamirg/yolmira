@@ -1,0 +1,3 @@
+dist/
+# msedgedriver and other E2E tools, fetched by e2e/fetch-driver.ps1 (pinned + SHA-256).
+e2e/.drivers/
