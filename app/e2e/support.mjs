@@ -19,6 +19,8 @@ export const CLI_EXE = join(ROOT, "target", "debug", "amiri.exe");
 const DAEMON_EXE = join(ROOT, "target", "debug", "amirid.exe");
 /** WebDriver's Enter key (W3C key code point U+E007). */
 const KEY_ENTER = "\uE007";
+/** How much of a UI process's own output the diagnostics keep. */
+const OUTPUT_TAIL = 4000;
 /** Upper bound for one WebDriver or devtools HTTP request. */
 const HTTP_TIMEOUT_MS = 30_000;
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -195,7 +197,15 @@ export class Ui {
       ui.consolePid = await openConsole(env, [APP_EXE, ...instance.args()]);
       ui.pid = await waitFor("the UI process under the console", () => childPid(ui.consolePid, "amiri-app.exe"));
     } else {
-      ui.pid = spawn(APP_EXE, instance.args(), { env, stdio: "ignore" }).pid;
+      // Keep its exit code and the tail of its output: a UI that disappears mid-test
+      // must say why (a panic message goes to stderr even in a GUI program).
+      const child = spawn(APP_EXE, instance.args(), { env, stdio: ["ignore", "pipe", "pipe"] });
+      ui.pid = child.pid;
+      ui.output = "";
+      const keep = (d) => (ui.output = (ui.output + d.toString("utf8")).slice(-OUTPUT_TAIL));
+      child.stdout.on("data", keep);
+      child.stderr.on("data", keep);
+      child.on("exit", (code, signal) => (ui.exit = { code, signal }));
     }
     await waitFor("the UI's WebView2 debugging port", async () => (await http(`http://127.0.0.1:${ui.debugPort}/json/version`)).ok);
     const s = await driver.call("POST", "/session", {
@@ -209,6 +219,15 @@ export class Ui {
 
   constructor(driver) {
     this.driver = driver;
+  }
+
+  /** For failure reports: alive or not, how it exited, and its own output. */
+  describe() {
+    if (this.pid && isAlive(this.pid)) return `UI pid ${this.pid}: alive`;
+    const how = this.exit
+      ? `exit code ${this.exit.code} (0x${((this.exit.code ?? 0) >>> 0).toString(16)}), signal ${this.exit.signal}`
+      : "exit not observed (started from a console)";
+    return `UI pid ${this.pid}: gone, ${how}\n--- its stdout/stderr ---\n${this.output || "(none)"}`;
   }
 
   async wd(method, path, body) {

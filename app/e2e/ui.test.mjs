@@ -21,7 +21,7 @@ function e2e(name, body) {
       await body();
     } catch (e) {
       const facts = mine.map((x) =>
-        x instanceof Instance ? `instance ${x.name}:\n${x.logTails()}` : `UI pid ${x.pid}: ${x.pid && isAlive(x.pid) ? "alive" : "gone"}`,
+        x instanceof Instance ? `instance ${x.name}:\n${x.logTails()}` : x.describe(),
       );
       e.message += `\n=== diagnostics ===\n${facts.join("\n")}`;
       throw e;

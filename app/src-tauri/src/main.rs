@@ -104,6 +104,12 @@ fn main() {
     drop_webview2_overrides();
     let instance = resolve_instance();
     let log = init_logging(&instance);
+    // A GUI program has no console: a panic would otherwise vanish without a trace.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("panic: {info}");
+        default_hook(info);
+    }));
     let daemon = Daemon::new(instance);
     let for_setup = Arc::clone(&daemon);
     let result = tauri::Builder::default()
