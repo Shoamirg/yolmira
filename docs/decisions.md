@@ -41,6 +41,27 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 | 2026-09-25 | uz-UZ | A Phase 1 gap; covered by the Phase 10 clean-install test in Windows Sandbox. | ARCHITECTURE Phase 10 |
 | 2026-09-25 | §17 Q11 — Compute | **Accepted, Phase 5b** (right after the orchestrator), with spike S6 (SkyPilot / dstack / Ray on own machines) at its start, not in Phase 0. A minimal version (inventory, jobs in remote tmux, logs back) after Phase 3 only if the user asks for remote training sooner. | ARCHITECTURE §10.9, §16.2 |
 
+## Proposed, awaiting review
+
+**2026-10-05: replace Codex with Gemini CLI and a local Qwen model.** The user has Claude, Gemini and a self-hosted Qwen, and no Codex subscription. Proposal:
+
+- **Second cloud agent: Gemini CLI** (`@google/gemini-cli`, 0.62.0 installed, pinned) instead of Codex. Auth is an API key from Google AI Studio (`GEMINI_API_KEY`, set by the user) or Vertex AI. "Sign in with Google" is not available: for a personal account the CLI fails with *"This client is no longer supported for Gemini Code Assist for individuals"* (seen 2026-10-05). A key on the free tier falls under Google's free-tier data terms, so client code needs a key on a billing-enabled project. The provider-accounts hard rule (2026-09-25) applies unchanged.
+- **Local agent: Qwen** (`qwen3.5-35b-a3b-abliterated`, vLLM, OpenAI-compatible API on a LAN server, key required) **driven through an existing agent CLI**, candidate opencode (installed) or Qwen Code. AMIRI doesn't build its own coding agent (ARCHITECTURE §17). The endpoint and key come from user environment variables (`AMIRI_QWEN_BASE_URL`, `AMIRI_QWEN_MODEL`, `AMIRI_QWEN_API_KEY`); AMIRI only reports that they exist.
+- **Failover (§8.4):** Claude → Gemini or Qwen, chosen per project. Qwen has no usage limit, so it's the natural fallback when both cloud agents are limited. The other rules of the 2026-09-25 failover decision stay as they are.
+- **Codex** remains a possible later provider; nothing written for it is lost (there's no Codex code yet).
+
+Known facts about the Qwen endpoint (one test request each, 2026-10-05):
+- Thinking is on by default: with `max_tokens: 200` the whole budget went to reasoning and `content` was empty (`finish_reason: length`). With `chat_template_kwargs: {enable_thinking: false}` the answer took 2 tokens, 0.3 s. The adapter has to handle both modes.
+- The model is **abliterated** (refusals removed). AMIRI's Policy Engine and permission layers are its only guardrail, so no permissive default policies for this provider.
+- Plain HTTP with a bearer key on the LAN; the server's firewall should only admit the dev PC.
+- The vLLM container doesn't restart after a server reboot (restart policy `no`), so "endpoint down" is an expected state, not an error case to ignore.
+
+What changes if approved:
+- **R1** is split: R1a Gemini CLI (headless/streaming protocol, interrupt, approvals, job containment, usage-limit signal, profile mechanism, native Windows), R1b Qwen via the chosen CLI (tool calls with this model, thinking modes, endpoint down or slow).
+- **S3** runs for both at the start of Phase 4, still a hard gate, including the failover pickup from a handoff packet.
+- Affected ARCHITECTURE sections: §6.2, §6.4, §8.4, §9.3 (becomes Gemini and Qwen adapters), §16.2 Phase 4, §16.4 R1 and R11; env probe and `amiri doctor` check for `gemini`, `opencode` and the Qwen variables (true/false only). ARCHITECTURE is edited after approval.
+- Phase 1 is unaffected, except that `amiri doctor` v1 (Slice D) reports `gemini` and the Qwen endpoint instead of `codex`.
+
 ## Still open
 
 - Q10 `amiri-sessiond` — deferred (§17 Q10)
