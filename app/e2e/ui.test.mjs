@@ -6,7 +6,28 @@ import { Driver, Instance, Ui, assertNoLeftovers, isAlive, killPid, requireBuilt
 
 let driver;
 const cleanups = [];
-const track = (x) => (cleanups.push(x), x);
+/** What the running test created, for its failure report. */
+let mine = [];
+const track = (x) => (cleanups.push(x), mine.push(x), x);
+
+/**
+ * A test whose failure also reports, for everything it started: whether each UI
+ * process is still alive, and the tails of each instance's daemon and UI logs.
+ */
+function e2e(name, body) {
+  test(name, async () => {
+    mine = [];
+    try {
+      await body();
+    } catch (e) {
+      const facts = mine.map((x) =>
+        x instanceof Instance ? `instance ${x.name}:\n${x.logTails()}` : `UI pid ${x.pid}: ${x.pid && isAlive(x.pid) ? "alive" : "gone"}`,
+      );
+      e.message += `\n=== diagnostics ===\n${facts.join("\n")}`;
+      throw e;
+    }
+  });
+}
 
 before(async () => {
   requireBuilt();
@@ -47,7 +68,7 @@ async function reattachAndCheck(instance, id) {
   await ui.waitLine(id, "(42)");
 }
 
-test("ui_close_reopen_shell_survives", async () => {
+e2e("ui_close_reopen_shell_survives", async () => {
   const instance = track(new Instance("close"));
   const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
@@ -61,7 +82,7 @@ test("ui_close_reopen_shell_survives", async () => {
   await reattachAndCheck(instance, id);
 });
 
-test("ui_killed_shell_survives", async () => {
+e2e("ui_killed_shell_survives", async () => {
   const instance = track(new Instance("kill"));
   const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
@@ -75,7 +96,7 @@ test("ui_killed_shell_survives", async () => {
   await reattachAndCheck(instance, id);
 });
 
-test("ui_started_from_closed_terminal", async () => {
+e2e("ui_started_from_closed_terminal", async () => {
   const instance = track(new Instance("console"));
   assert.equal(await instance.daemonPid(), null, "no daemon before the UI starts one");
   const ui = await Ui.launch(driver, instance, track, { viaConsole: true });
@@ -96,7 +117,7 @@ test("ui_started_from_closed_terminal", async () => {
   await ui.waitLine(id, "[Windows_NT]");
 });
 
-test("two_uis_same_session", async () => {
+e2e("two_uis_same_session", async () => {
   const instance = track(new Instance("two"));
   const a = await Ui.launch(driver, instance, track);
   await a.waitConnected();
@@ -118,7 +139,7 @@ test("two_uis_same_session", async () => {
   }
 });
 
-test("daemon_down_banner_and_reconnect", async () => {
+e2e("daemon_down_banner_and_reconnect", async () => {
   const instance = track(new Instance("down"));
   const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
@@ -160,7 +181,7 @@ test("daemon_down_banner_and_reconnect", async () => {
 
 // Flow control: more output than the 1 MiB window must arrive in full, which needs
 // the terminal's acknowledgements, and the shell must stay responsive after it.
-test("output_flood_flows_through", async () => {
+e2e("output_flood_flows_through", async () => {
   const instance = track(new Instance("flood"));
   const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();

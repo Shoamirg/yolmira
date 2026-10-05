@@ -5,7 +5,7 @@
 // locale-neutral values: markers the shell computes, numbers, exit codes, pids.
 // Screens are read from xterm's DOM rows: the text the user sees, no test hooks.
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -119,6 +119,22 @@ export class Instance {
   async shells() {
     const r = await this.cli("shell", "list");
     return Array.isArray(r.json) ? r.json : [];
+  }
+  /** The last lines of every log in this instance's log folder (daemon and UI). */
+  logTails(lines = 30) {
+    const dir = join(this.home, "logs");
+    let names = [];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return "(no log folder)";
+    }
+    return names
+      .map((n) => {
+        const text = readFileSync(join(dir, n), "utf8").split(/\r?\n/).filter(Boolean);
+        return `--- ${n} (last ${lines} lines) ---\n${text.slice(-lines).join("\n")}`;
+      })
+      .join("\n");
   }
   async dispose() {
     await this.cli("daemon", "stop");
