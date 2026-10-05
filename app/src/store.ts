@@ -8,9 +8,9 @@ import {
   type SessionExited,
   type SessionInfo,
   type SessionOutput,
-  type SessionStatus,
   type ShellKind,
 } from "./api";
+import { snapshotIsCurrent, type Snapshot, type StatusView } from "./status";
 import { DEFAULT_COLS, DEFAULT_ROWS, disposeTerminal, ensureTerminal, getTerminal, writeOutput } from "./terminals";
 
 export type FeedState = "attaching" | "live" | "closed" | "exited";
@@ -20,8 +20,10 @@ export type Tab = { id: string; feed: FeedState; note: string | null; generation
 type Store = {
   daemon: DaemonState;
   sessions: SessionInfo[];
-  /** False from a disconnect until the first list after reconnecting. */
-  sessionsFresh: boolean;
+  /** Bumped on every connect, disconnect or daemon change. */
+  epoch: number;
+  /** Where `sessions` came from; statuses show only while it matches (status.ts). */
+  snapshot: Snapshot | null;
   tabs: Tab[];
   active: string | null;
   error: AmiriError | null;
@@ -44,14 +46,15 @@ type Store = {
 
 const OFFLINE: DaemonState = { connected: false, pid: null, version: null, instance: null, error: null };
 
-/** Until the UI has a fresh list from a reachable daemon, no shell is known to be RUNNING. */
-export function shownStatus(s: SessionInfo, known: boolean): SessionStatus {
-  return known ? s.status : "UNKNOWN";
-}
+/** The facts `shownStatus` decides from. */
+export const statusView = (s: { daemon: DaemonState; epoch: number; snapshot: Snapshot | null }): StatusView => ({
+  connected: s.daemon.connected,
+  pid: s.daemon.pid,
+  epoch: s.epoch,
+  snapshot: s.snapshot,
+});
 
 let nextGeneration = 1;
-/** Bumped on every connect, disconnect or daemon change: a list fetched before is stale. */
-let connEpoch = 0;
 /** The latest list request; an older one that returns later is dropped. */
 let listSeq = 0;
 
@@ -69,7 +72,8 @@ export const useStore = create<Store>((set, get) => {
   return {
     daemon: OFFLINE,
     sessions: [],
-    sessionsFresh: false,
+    epoch: 0,
+    snapshot: null,
     tabs: [],
     active: null,
     error: null,
@@ -79,10 +83,9 @@ export const useStore = create<Store>((set, get) => {
     setDaemon: (d) => {
       const prev = get().daemon;
       if (sameDaemon(prev, d)) return set({ daemon: d });
-      connEpoch++;
       set((s) => ({
         daemon: d,
-        sessionsFresh: false,
+        epoch: s.epoch + 1,
         tabs: prev.connected
           ? s.tabs.map((t) => (t.feed === "exited" ? t : { ...t, feed: "closed", note: "daemon unreachable" }))
           : s.tabs,
@@ -93,9 +96,9 @@ export const useStore = create<Store>((set, get) => {
     // Reconnected: reload the list, then reattach the tabs whose shell still runs
     // (the replay restores their screens). A daemon restart ends local shells (D3).
     resume: async () => {
-      const epoch = connEpoch;
+      const epoch = get().epoch;
       await get().refreshSessions();
-      if (!get().sessionsFresh || epoch !== connEpoch) return;
+      if (get().epoch !== epoch || !snapshotIsCurrent(statusView(get()))) return;
       const running = new Set(get().sessions.filter((s) => s.status === "RUNNING").map((s) => s.id));
       for (const t of get().tabs.filter((t) => t.feed === "closed")) {
         if (running.has(t.id)) void get().attach(t.id, { focus: false });
@@ -105,11 +108,13 @@ export const useStore = create<Store>((set, get) => {
 
     refreshSessions: async () => {
       if (!get().daemon.connected) return;
-      const epoch = connEpoch;
+      const epoch = get().epoch;
       const seq = ++listSeq;
       try {
-        const sessions = await api.sessionList();
-        if (epoch === connEpoch && seq === listSeq) set({ sessions, sessionsFresh: true });
+        const { daemon_pid, sessions } = await api.sessionList();
+        // Out-of-date answers are dropped here; and should one get through, it still
+        // can't show a status unless its epoch and daemon pid match (status.ts).
+        if (seq === listSeq && epoch === get().epoch) set({ sessions, snapshot: { epoch, pid: daemon_pid } });
       } catch (e) {
         fail("List shells")(e);
       }

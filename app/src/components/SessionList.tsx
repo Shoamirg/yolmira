@@ -1,6 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
 import type { ShellKind } from "../api";
-import { shownStatus, useStore } from "../store";
+import { shownStatus } from "../status";
+import { statusView, useStore } from "../store";
 
 const NEW_KINDS: { kind: ShellKind; label: string }[] = [
   { kind: "cmd", label: "cmd" },
@@ -12,10 +13,11 @@ const NEW_KINDS: { kind: ShellKind; label: string }[] = [
 const shortId = (id: string) => id.slice(-6);
 
 export function SessionList() {
-  const { sessions, known, daemon, tabs, openNew, attach, kill } = useStore(
+  const { sessions, epoch, snapshot, daemon, tabs, openNew, attach, kill } = useStore(
     useShallow((s) => ({
       sessions: s.sessions,
-      known: s.daemon.connected && s.sessionsFresh,
+      epoch: s.epoch,
+      snapshot: s.snapshot,
       daemon: s.daemon,
       tabs: s.tabs,
       openNew: s.openNew,
@@ -24,6 +26,7 @@ export function SessionList() {
     })),
   );
   const open = new Set(tabs.map((t) => t.id));
+  const view = statusView({ daemon, epoch, snapshot });
   return (
     <aside className="sidebar">
       <header className="sidebar-head">
@@ -49,7 +52,7 @@ export function SessionList() {
         {sessions.length === 0 && <p className="empty">No shells yet.</p>}
         <ul>
           {sessions.map((s) => {
-            const status = shownStatus(s, known);
+            const status = shownStatus(s, view);
             const label = `${s.shell} ${shortId(s.id)}`;
             return (
               <li key={s.id} className="session-row" data-testid="session-row" data-session-id={s.id} data-session-status={status}>

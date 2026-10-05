@@ -151,6 +151,11 @@ export class Driver {
   stop() {
     this.proc?.kill();
   }
+  /** Wait until msedgedriver has exited. */
+  async stopped() {
+    this.stop();
+    if (this.proc?.pid) await waitFor("msedgedriver to exit", () => !isAlive(this.proc.pid), 15_000);
+  }
 }
 
 /** One running UI process and a WebDriver session attached to its WebView2. */
@@ -329,6 +334,45 @@ async function openConsole(env, argv) {
   const pid = Number.parseInt(r.stdout.trim(), 10);
   if (r.code !== 0 || !Number.isInteger(pid)) throw new Error(`opening a console failed (${r.code}): ${r.stdout} ${r.stderr}`);
   return pid;
+}
+
+/**
+ * Processes this harness started that are still running: its msedgedriver (by port),
+ * WebView2 hosts using a test data folder, and daemons or UIs of a test instance.
+ * Matched on the command line only, never by name alone: the system runs its own
+ * WebView2 processes (e.g. Windows Search), and the user may run AMIRI.
+ */
+export async function leftovers(driverPort) {
+  const r = await run("powershell.exe", [
+    "-NoProfile",
+    "-Command",
+    "Get-CimInstance Win32_Process -Filter \"Name='msedgedriver.exe' or Name='msedgewebview2.exe' or Name='amirid.exe' or Name='amiri-app.exe'\" | ForEach-Object { '{0}|{1}|{2}' -f $_.ProcessId, $_.Name, $_.CommandLine }",
+  ]);
+  if (r.code !== 0) throw new Error(`listing processes failed (${r.code}): ${r.stderr}`);
+  const ours = (name, cmd) =>
+    (name === "msedgedriver.exe" && driverPort !== undefined && cmd.includes(`--port=${driverPort}`)) ||
+    (name === "msedgewebview2.exe" && cmd.includes("amiri-e2e-wv-")) ||
+    ((name === "amirid.exe" || name === "amiri-app.exe") && /--instance\s+"?e2e-/.test(cmd));
+  return r.stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [pid, name, ...rest] = line.split("|");
+      return { pid: Number.parseInt(pid, 10), name, cmd: rest.join("|") };
+    })
+    .filter((p) => Number.isInteger(p.pid) && ours(p.name, p.cmd));
+}
+
+/** Fail if anything the harness started outlives the cleanup (killing it first). */
+export async function assertNoLeftovers(driverPort) {
+  let left = [];
+  try {
+    await waitFor("test processes to exit", async () => (left = await leftovers(driverPort)).length === 0, 20_000, 500);
+  } catch {
+    for (const p of left) if (isAlive(p.pid)) killPid(p.pid);
+    const list = left.map((p) => `${p.name} ${p.pid}: ${p.cmd.slice(0, 200)}`).join("\n  ");
+    throw new Error(`${left.length} process(es) outlived the tests (now killed):\n  ${list}`);
+  }
 }
 
 export function requireBuilt() {

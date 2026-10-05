@@ -11,6 +11,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
     "tauri": "tauri",
     "build:app": "tauri build --debug --no-bundle",
     "e2e": "node --test --test-concurrency=1 --test-timeout=600000 e2e/*.test.mjs",

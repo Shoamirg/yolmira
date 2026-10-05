@@ -7,8 +7,10 @@ pub mod shell;
 use amiri_ipc::win::security::is_elevated;
 use amiri_ipc::{Client, Instance};
 use serde_json::Value;
+use std::future::Future;
 use std::path::PathBuf;
 use std::process::{Command, Output};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 pub const AMIRI: &str = env!("CARGO_BIN_EXE_amiri");
@@ -20,7 +22,15 @@ pub struct TestEnv {
     /// False inside a job that forbids breakaway (cargo, GitHub's runner): the
     /// detached launcher can't work there, so daemons are started directly.
     pub can_detach: bool,
+    /// The latest shell output of this test's sessions (see `shell::Shell`), for
+    /// failure reports when the test as a whole runs out of time.
+    pub transcript: Arc<Mutex<String>>,
 }
+
+/// Opening a pipe connection and its hello; `Client::connect` itself has no limit.
+pub const CONNECT_LIMIT: Duration = Duration::from_secs(30);
+/// How much of the transcript a failure report shows.
+const TRANSCRIPT_TAIL: usize = 4000;
 
 /// Set by the CI workflow: the runner's job forbids breakaway, so detach tests are
 /// reported as not run instead of failing.
@@ -37,6 +47,7 @@ impl TestEnv {
             name,
             home: tempfile::tempdir().expect("temp home"),
             can_detach,
+            transcript: Arc::default(),
         }
     }
 
@@ -171,9 +182,42 @@ impl TestEnv {
     }
 
     pub async fn client(&self) -> Client {
-        Client::connect(&self.instance(), "test")
-            .await
-            .expect("connect")
+        match tokio::time::timeout(CONNECT_LIMIT, Client::connect(&self.instance(), "test")).await {
+            Ok(Ok(c)) => c,
+            Ok(Err(e)) => panic!("{}", self.report(&format!("connect: {e}"))),
+            Err(_) => panic!(
+                "{}",
+                self.report(&format!("connect: no answer within {CONNECT_LIMIT:?}"))
+            ),
+        }
+    }
+
+    /// A failure message with what a person would look at first: the shell output
+    /// and the daemon's log.
+    pub fn report(&self, msg: &str) -> String {
+        let transcript = self
+            .transcript
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        format!(
+            "{msg}\n--- shell output tail ---\n{}\n--- daemon log tail ---\n{}",
+            tail_chars(&transcript, TRANSCRIPT_TAIL),
+            daemon_log_tail(&self.home())
+        )
+    }
+
+    /// Run a test body with an overall deadline. Every step inside is bounded too;
+    /// this catches what a step limit can't (many slow steps, a wait missed in review).
+    pub fn block_on<F: Future>(&self, limit: Duration, f: F) -> F::Output {
+        runtime()
+            .block_on(async { tokio::time::timeout(limit, f).await })
+            .unwrap_or_else(|_| {
+                panic!(
+                    "{}",
+                    self.report(&format!("the test did not finish within {limit:?}"))
+                )
+            })
     }
 
     /// All events (starts the daemon first if needed, as `amiri events` would).
@@ -421,6 +465,12 @@ impl Pty {
         drop(self.master);
         self.child
     }
+}
+
+/// The last `n` characters (not bytes: output is often Cyrillic).
+pub fn tail_chars(s: &str, n: usize) -> String {
+    let c: Vec<char> = s.chars().collect();
+    c[c.len().saturating_sub(n)..].iter().collect()
 }
 
 pub fn runtime() -> tokio::runtime::Runtime {

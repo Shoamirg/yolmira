@@ -237,6 +237,17 @@ impl Daemon {
 
     /// One request on the control connection.
     pub async fn call(&self, what: &str, method: &str, params: Value) -> Result<Value, AmiriError> {
+        self.call_served(what, method, params).await.map(|(v, _)| v)
+    }
+
+    /// Like [`Self::call`], also returning the pid of the daemon process that answered
+    /// (from its connection's hello), so the UI can tell whose state a reply describes.
+    pub async fn call_served(
+        &self,
+        what: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<(Value, u32), AmiriError> {
         let link = self.link().ok_or_else(|| not_connected(what))?;
         let mut client = link.client.lock().await;
         // Queued behind a call that broke this connection: fail now rather than wait
@@ -244,19 +255,22 @@ impl Daemon {
         if !self.is_current(&link) {
             return Err(not_connected(what));
         }
+        let served_by = client.hello.pid;
         let result = client.call_value(method, params).await;
         drop(client);
-        result.map_err(|e| {
-            if breaks_connection(&e) {
-                // Only if no reconnect replaced it meanwhile.
-                let mut slot = lock(&self.control);
-                if slot.as_ref().is_some_and(|c| Arc::ptr_eq(c, &link)) {
-                    *slot = None;
+        result
+            .map_err(|e| {
+                if breaks_connection(&e) {
+                    // Only if no reconnect replaced it meanwhile.
+                    let mut slot = lock(&self.control);
+                    if slot.as_ref().is_some_and(|c| Arc::ptr_eq(c, &link)) {
+                        *slot = None;
+                    }
+                    link.broken.notify_one();
                 }
-                link.broken.notify_one();
-            }
-            client_error(what, e)
-        })
+                client_error(what, e)
+            })
+            .map(|v| (v, served_by))
     }
 
     /// Attach on a new feed connection; output goes to the frontend as events tagged

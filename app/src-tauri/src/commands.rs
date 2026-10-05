@@ -7,6 +7,7 @@ use amiri_core::AmiriError;
 use amiri_ipc::protocol::{methods, SessionCreateParams, SessionInfo};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -59,11 +60,25 @@ pub async fn daemon_start(daemon: DaemonRef<'_>) -> Res<()> {
     daemon.start().await.map(|_| ())
 }
 
+/// A session list and the daemon process it came from.
+#[derive(Debug, Serialize)]
+pub struct SessionSnapshot {
+    daemon_pid: u32,
+    sessions: Vec<SessionInfo>,
+}
+
+/// The list carries the pid of the daemon that answered: the UI shows a session's
+/// status only while that is the daemon it is connected to (never a stale RUNNING).
 #[tauri::command]
-pub async fn session_list(daemon: DaemonRef<'_>) -> Res<Vec<SessionInfo>> {
+pub async fn session_list(daemon: DaemonRef<'_>) -> Res<SessionSnapshot> {
     const WHAT: &str = "List shells";
-    let v = daemon.call(WHAT, methods::SESSION_LIST, json!({})).await?;
-    decode(WHAT, v)
+    let (v, daemon_pid) = daemon
+        .call_served(WHAT, methods::SESSION_LIST, json!({}))
+        .await?;
+    Ok(SessionSnapshot {
+        daemon_pid,
+        sessions: decode(WHAT, v)?,
+    })
 }
 
 #[tauri::command]

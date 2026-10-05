@@ -36,7 +36,14 @@ try {
         $durations += '{0,-14} {1,7:N1} s  exit {2}' -f $name, $watch.Elapsed.TotalSeconds, $code
         $out | ForEach-Object { Write-Host $_ }
         $notRun += $out | Where-Object { $_ -match '^NOT RUN' }
-        if ($code -ne 0) { $failed += $exe }
+        if ($code -ne 0) {
+            # Keep the whole output: a rare failure is only worth something with its evidence.
+            $logDir = Join-Path $root 'target\test-logs'
+            New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+            $log = Join-Path $logDir ('{0}-{1}.log' -f $name, (Get-Date -Format 'yyyyMMdd-HHmmss'))
+            $out | Out-File -FilePath $log -Encoding utf8
+            $failed += "$exe (full output: $log)"
+        }
     }
     Write-Host "Durations per test binary:"
     $durations | ForEach-Object { Write-Host "  $_" }

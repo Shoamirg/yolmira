@@ -6,7 +6,7 @@ mod support;
 
 use serde_json::json;
 use std::time::Duration;
-use support::shell::{not_run, Shell};
+use support::shell::{not_run, Shell, PTY_TEST};
 use support::*;
 
 const OS_MARK: &str = "AMIRI_Windows_NT";
@@ -21,7 +21,7 @@ async fn cmd(env: &TestEnv) -> Shell {
 fn echo_round_trip_cmd() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = cmd(&env).await;
         s.send("echo AMIRI_%OS%\r").await;
         s.expect(OS_MARK).await;
@@ -32,7 +32,7 @@ fn echo_round_trip_cmd() {
 fn echo_round_trip_powershell() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = Shell::open(&env, json!({ "kind": "powershell" }), None)
             .await
             .expect("powershell session");
@@ -87,7 +87,7 @@ fn foreground_before(text: &str, marker: &str) -> Option<String> {
 fn ansi_color_semantics() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = Shell::open(&env, json!({ "kind": "powershell" }), None)
             .await
             .expect("powershell session");
@@ -123,7 +123,7 @@ fn sgr_parser_reads_common_forms() {
 fn resize_reported_by_child() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = Shell::open(&env, json!({ "kind": "powershell" }), None).await.expect("powershell session");
         s.send("Write-Output (\"AMIRI_READY\" + (6*7))\r").await;
         s.expect("AMIRI_READY42").await;
@@ -138,7 +138,7 @@ fn resize_reported_by_child() {
 fn ctrl_c_interrupts_ping() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = cmd(&env).await;
         s.send("ping -t 127.0.0.1\r").await;
         // ping's lines are localized, but each reply names the address: wait until it
@@ -164,7 +164,7 @@ fn ctrl_c_interrupts_ping() {
 fn exit_codes() {
     let env = TestEnv::new();
     env.start();
-    let id = runtime().block_on(async {
+    let id = env.block_on(PTY_TEST, async {
         let mut s = cmd(&env).await;
         s.send("exit 7\r").await;
         assert_eq!(s.wait_exit().await, Some(7));
@@ -193,7 +193,7 @@ fn exit_codes() {
 fn dsr_answered_without_client() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         // Create without attaching: only the daemon can answer the cursor request.
         let mut ctl = env.client().await;
         let info: amiri_ipc::protocol::SessionInfo = ctl
@@ -228,7 +228,7 @@ fn wsl_session() {
     }
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = Shell::open(&env, json!({ "kind": "wsl" }), None)
             .await
             .expect("wsl session");
@@ -241,7 +241,7 @@ fn wsl_session() {
 fn pwsh_session() {
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         match Shell::open(&env, json!({ "kind": "pwsh" }), None).await {
             Err(e) if e.contains("not installed") => {
                 not_run("pwsh_session", "PowerShell 7 is not installed (risk R7)");
@@ -260,7 +260,7 @@ fn oem_codepage_output_decoded() {
     // cmd on ru-RU runs with OEM code page 866; ConPTY must still deliver UTF-8.
     let env = TestEnv::new();
     env.start();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = cmd(&env).await;
         s.send("echo Привет_%OS%\r").await;
         s.expect("Привет_Windows_NT").await;
@@ -273,7 +273,7 @@ fn non_ascii_cwd() {
     env.start();
     let dir = env.home().join("Проект oʻzbek");
     std::fs::create_dir_all(&dir).unwrap();
-    runtime().block_on(async {
+    env.block_on(PTY_TEST, async {
         let mut s = Shell::open(&env, json!({ "kind": "cmd" }), dir.to_str())
             .await
             .expect("session");
@@ -293,7 +293,7 @@ fn soak_1h_output_flood() {
     };
     let env = TestEnv::new();
     let pid = env.start()["pid"].as_u64().expect("pid");
-    runtime().block_on(async {
+    env.block_on(Duration::from_secs(secs) + PTY_TEST, async {
         let mut s = Shell::open(&env, json!({ "kind": "powershell" }), None).await.expect("session");
         let flood = format!(
             "$e=(Get-Date).AddSeconds({secs}); $i=0; while((Get-Date) -lt $e){{ $i++; Write-Output ('x'*200 + $i) }}; Write-Output (\"AMIRI_DONE\" + (6*7))\r"

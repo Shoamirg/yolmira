@@ -3,7 +3,7 @@
 //! echoed command line never matches by accident.
 #![allow(dead_code)]
 
-use super::TestEnv;
+use super::{tail_chars, TestEnv};
 use amiri_ipc::protocol::{
     methods, notifications, SessionAttachResult, SessionExited, SessionIdParams, SessionInfo,
     SessionInputParams, SessionOutput, SessionResizeParams,
@@ -12,6 +12,8 @@ use amiri_ipc::Client;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 /// One command round trip. Generous: the first command in a fresh Windows PowerShell
@@ -19,6 +21,10 @@ use std::time::Duration;
 pub const STEP: Duration = Duration::from_secs(90);
 /// Allowance for a shell to start (cold machines, CI).
 pub const SHELL_START: Duration = Duration::from_secs(120);
+/// Overall limit for one PTY test: a cold PowerShell start plus a few steps.
+pub const PTY_TEST: Duration = Duration::from_secs(300);
+/// The test transcript keeps this much of the latest output.
+const TRANSCRIPT_KEEP: usize = 64 * 1024;
 
 /// Error text including the daemon's `why` (the RPC message alone is only the `what`).
 fn describe(e: amiri_ipc::ClientError) -> String {
@@ -41,6 +47,10 @@ pub struct Shell {
     /// Output bytes received since attaching (the replay counts first).
     replayed: u64,
     pub exited: Option<Option<i64>>,
+    /// For failure reports: the daemon's log folder lives here.
+    home: PathBuf,
+    /// Mirrors `text` into the test's transcript (`TestEnv::report`).
+    transcript: Arc<Mutex<String>>,
 }
 
 impl Shell {
@@ -77,11 +87,9 @@ impl Shell {
         })
         .await
         .unwrap_or(false);
-        assert!(
-            found,
-            "no PowerShell prompt within {SHELL_START:?}; output tail: {:?}",
-            tail(&self.text)
-        );
+        if !found {
+            self.fail(&format!("no PowerShell prompt within {SHELL_START:?}"));
+        }
     }
 
     /// Attach to an existing session on fresh connections.
@@ -102,6 +110,8 @@ impl Shell {
             text: String::new(),
             replayed: 0,
             exited: None,
+            home: env.home(),
+            transcript: Arc::clone(&env.transcript),
         };
         shell.read_replay(r.replay_bytes).await;
         Ok(shell)
@@ -119,11 +129,12 @@ impl Shell {
         })
         .await
         .unwrap_or(false);
-        assert!(
-            done,
-            "replay incomplete: {} of {bytes} bytes",
-            self.replayed
-        );
+        if !done {
+            self.fail(&format!(
+                "replay incomplete: {} of {bytes} bytes",
+                self.replayed
+            ));
+        }
     }
 
     pub async fn send(&mut self, text: &str) {
@@ -135,10 +146,9 @@ impl Shell {
             id: self.id.clone(),
             data: B64.encode(bytes),
         };
-        self.ctl
-            .call_value(methods::SESSION_INPUT, json!(p))
-            .await
-            .expect("session.input");
+        if let Err(e) = self.ctl.call_value(methods::SESSION_INPUT, json!(p)).await {
+            self.fail(&format!("session.input: {e}"));
+        }
     }
 
     pub async fn resize(&mut self, cols: u16, rows: u16) {
@@ -147,20 +157,18 @@ impl Shell {
             cols,
             rows,
         };
-        self.ctl
-            .call_value(methods::SESSION_RESIZE, json!(p))
-            .await
-            .expect("session.resize");
+        if let Err(e) = self.ctl.call_value(methods::SESSION_RESIZE, json!(p)).await {
+            self.fail(&format!("session.resize: {e}"));
+        }
     }
 
     pub async fn kill(&mut self) {
         let p = SessionIdParams {
             id: self.id.clone(),
         };
-        self.ctl
-            .call_value(methods::SESSION_KILL, json!(p))
-            .await
-            .expect("session.kill");
+        if let Err(e) = self.ctl.call_value(methods::SESSION_KILL, json!(p)).await {
+            self.fail(&format!("session.kill: {e}"));
+        }
     }
 
     /// Read output until `needle` appears; panics with the output tail on timeout.
@@ -179,11 +187,11 @@ impl Shell {
         })
         .await
         .unwrap_or(false);
-        assert!(
-            found,
-            "timed out waiting for {needle:?}; output tail: {:?}",
-            tail(&self.text)
-        );
+        if !found {
+            self.fail(&format!(
+                "timed out after {timeout:?} waiting for {needle:?}"
+            ));
+        }
     }
 
     /// Wait for the shell to exit; returns its exit code.
@@ -196,12 +204,13 @@ impl Shell {
             }
         })
         .await;
-        assert!(
-            done.is_ok(),
-            "shell did not exit; output tail: {:?}",
-            tail(&self.text)
-        );
-        self.exited.expect("exit notification")
+        if done.is_err() {
+            self.fail(&format!("shell did not exit within {STEP:?}"));
+        }
+        match self.exited {
+            Some(code) => code,
+            None => self.fail("the feed closed without an exit notification"),
+        }
     }
 
     /// One notification; false when the feed closed.
@@ -226,7 +235,9 @@ impl Shell {
                 "a cursor request reached the client"
             );
             self.replayed += data.len() as u64;
-            self.text.push_str(&String::from_utf8_lossy(&data));
+            let chunk = String::from_utf8_lossy(&data);
+            self.text.push_str(&chunk);
+            self.mirror(&chunk, o.reset);
         } else if n.method == notifications::SESSION_EXITED {
             let e: SessionExited = serde_json::from_value(n.params).expect("exited");
             self.exited = Some(e.exit_code);
@@ -236,11 +247,33 @@ impl Shell {
 
     /// Drop both connections without detaching (like a killed client).
     pub fn drop_connections(self) {}
+
+    fn mirror(&self, chunk: &str, reset: bool) {
+        let mut t = self
+            .transcript
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if reset {
+            t.push_str("\n[replay]\n");
+        }
+        t.push_str(chunk);
+        if t.len() > 2 * TRANSCRIPT_KEEP {
+            *t = tail_chars(&t, TRANSCRIPT_KEEP);
+        }
+    }
+
+    /// Fail with this session's output tail and the daemon's log tail.
+    fn fail(&self, msg: &str) -> ! {
+        panic!(
+            "{msg}\n--- shell output tail ---\n{}\n--- daemon log tail ---\n{}",
+            tail(&self.text),
+            super::daemon_log_tail(&self.home)
+        )
+    }
 }
 
 pub fn tail(s: &str) -> String {
-    let c: Vec<char> = s.chars().collect();
-    c[c.len().saturating_sub(2000)..].iter().collect()
+    tail_chars(s, 2000)
 }
 
 /// Print a visible "not run" line past the test harness's capture; returns false.

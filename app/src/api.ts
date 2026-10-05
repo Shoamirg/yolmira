@@ -33,6 +33,9 @@ export type SessionInfo = {
   rows: number;
 };
 
+/** A session list and the pid of the daemon process that answered it. */
+export type SessionSnapshot = { daemon_pid: number; sessions: SessionInfo[] };
+
 export type ShellKind = "cmd" | "powershell" | "pwsh" | "wsl";
 
 /**
@@ -47,7 +50,7 @@ export type DaemonEvent = { seq: number; kind: string; session_id: string | null
 export const api = {
   daemonState: () => invoke<DaemonState>("daemon_state"),
   daemonStart: () => invoke<void>("daemon_start"),
-  sessionList: () => invoke<SessionInfo[]>("session_list"),
+  sessionList: () => invoke<SessionSnapshot>("session_list"),
   sessionCreate: (kind: ShellKind, cols: number, rows: number) =>
     invoke<SessionInfo>("session_create", { kind, cols, rows }),
   sessionAttach: (id: string, generation: number) => invoke<unknown>("session_attach", { id, generation }),

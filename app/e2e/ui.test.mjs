@@ -2,7 +2,7 @@
 // Every test uses its own daemon instance and its own UI processes.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { Driver, Instance, Ui, isAlive, killPid, requireBuilt, sleep, waitFor } from "./support.mjs";
+import { Driver, Instance, Ui, assertNoLeftovers, isAlive, killPid, requireBuilt, sleep, waitFor } from "./support.mjs";
 
 let driver;
 const cleanups = [];
@@ -16,7 +16,9 @@ before(async () => {
 after(async () => {
   const failures = [];
   for (const c of cleanups.reverse()) await c.dispose().catch((e) => failures.push(e));
-  driver?.stop();
+  await driver?.stopped().catch((e) => failures.push(e));
+  // Nothing the tests started may outlive them: driver, WebView2 hosts, daemons, UIs.
+  await assertNoLeftovers(driver?.port).catch((e) => failures.push(e));
   if (failures.length) throw new AggregateError(failures, `${failures.length} cleanup step(s) failed`);
 });
 
@@ -139,15 +141,16 @@ test("daemon_down_banner_and_reconnect", async () => {
   await waitFor("the old tab marked exited", async () => (await ui.tabFeed(id)) === "exited");
 
   // Every state the UI rendered from the kill on: while disconnected every row is
-  // UNKNOWN, and the old shell is never shown RUNNING again (not even for one frame
-  // around the reconnect, from a list fetched before the restart).
+  // UNKNOWN; once reconnected the dead shell is RECONNECTING until the new daemon's
+  // list arrives, then EXITED. It is never shown RUNNING again, not even for one frame.
   const seen = await ui.recorded();
   const fromKill = seen.slice(seen.findIndex((r) => !r.connected));
   assert.ok(fromKill.length > 0 && !fromKill[0].connected, "the disconnect was rendered");
   const trail = fromKill.map((r) => `${r.connected ? "up" : "down"}:${r.rows.map(([sid, st]) => `${sid.slice(-4)}=${st}`).join(",")}`).join(" | ");
   for (const r of fromKill) {
     if (!r.connected) assert.ok(r.rows.every(([, status]) => status === "UNKNOWN"), trail);
-    assert.ok(!r.rows.some(([sid, status]) => sid === id && status === "RUNNING"), trail);
+    const mine = r.rows.find(([sid]) => sid === id)?.[1];
+    assert.ok(["UNKNOWN", "RECONNECTING", "EXITED"].includes(mine), trail);
   }
 
   const fresh = await ui.newCmd();
