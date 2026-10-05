@@ -44,7 +44,7 @@ if (-not (Test-Path $exe)) {
 
 $sig = Get-AuthenticodeSignature -FilePath $exe
 # Status enum name and the certificate subject are not localized.
-if ($sig.Status.ToString() -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+if ($sig.Status.ToString() -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
     throw "msedgedriver.exe signature check failed: $($sig.Status) $($sig.SignerCertificate.Subject)"
 }
 Write-Output $exe

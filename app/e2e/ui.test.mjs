@@ -144,9 +144,10 @@ test("daemon_down_banner_and_reconnect", async () => {
   const seen = await ui.recorded();
   const fromKill = seen.slice(seen.findIndex((r) => !r.connected));
   assert.ok(fromKill.length > 0 && !fromKill[0].connected, "the disconnect was rendered");
+  const trail = fromKill.map((r) => `${r.connected ? "up" : "down"}:${r.rows.map(([sid, st]) => `${sid.slice(-4)}=${st}`).join(",")}`).join(" | ");
   for (const r of fromKill) {
-    if (!r.connected) assert.ok(r.rows.every(([, status]) => status === "UNKNOWN"), JSON.stringify(r));
-    assert.ok(!r.rows.some(([sid, status]) => sid === id && status === "RUNNING"), JSON.stringify(r));
+    if (!r.connected) assert.ok(r.rows.every(([, status]) => status === "UNKNOWN"), trail);
+    assert.ok(!r.rows.some(([sid, status]) => sid === id && status === "RUNNING"), trail);
   }
 
   const fresh = await ui.newCmd();
