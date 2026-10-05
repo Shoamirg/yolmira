@@ -29,7 +29,7 @@ async function shellWithMark(ui) {
 
 /** Relaunch, attach to `id`, and check the replay and the variable. */
 async function reattachAndCheck(instance, id) {
-  const ui = track(await Ui.launch(driver, instance));
+  const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
   await waitFor(`session ${id} listed RUNNING`, async () => (await ui.rows()).some((r) => r.id === id && r.status === "RUNNING"));
   await ui.attachRow(id);
@@ -41,7 +41,7 @@ async function reattachAndCheck(instance, id) {
 
 test("ui_close_reopen_shell_survives", async () => {
   const instance = track(new Instance("close"));
-  const ui = track(await Ui.launch(driver, instance));
+  const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
   const id = await shellWithMark(ui);
   const daemon = await instance.daemonPid();
@@ -55,7 +55,7 @@ test("ui_close_reopen_shell_survives", async () => {
 
 test("ui_killed_shell_survives", async () => {
   const instance = track(new Instance("kill"));
-  const ui = track(await Ui.launch(driver, instance));
+  const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
   const id = await shellWithMark(ui);
   const daemon = await instance.daemonPid();
@@ -70,7 +70,7 @@ test("ui_killed_shell_survives", async () => {
 test("ui_started_from_closed_terminal", async () => {
   const instance = track(new Instance("console"));
   assert.equal(await instance.daemonPid(), null, "no daemon before the UI starts one");
-  const ui = track(await Ui.launch(driver, instance, { viaConsole: true }));
+  const ui = await Ui.launch(driver, instance, track, { viaConsole: true });
   await ui.waitConnected();
   const daemon = await instance.daemonPid();
   assert.ok(daemon, "the UI started the daemon");
@@ -88,10 +88,10 @@ test("ui_started_from_closed_terminal", async () => {
 
 test("two_uis_same_session", async () => {
   const instance = track(new Instance("two"));
-  const a = track(await Ui.launch(driver, instance));
+  const a = await Ui.launch(driver, instance, track);
   await a.waitConnected();
   const id = await a.newCmd();
-  const b = track(await Ui.launch(driver, instance));
+  const b = await Ui.launch(driver, instance, track);
   await b.waitConnected();
   await b.attachRow(id);
 
@@ -106,7 +106,7 @@ test("two_uis_same_session", async () => {
 
 test("daemon_down_banner_and_reconnect", async () => {
   const instance = track(new Instance("down"));
-  const ui = track(await Ui.launch(driver, instance));
+  const ui = await Ui.launch(driver, instance, track);
   await ui.waitConnected();
   const id = await ui.newCmd();
   const first = await instance.daemonPid();
