@@ -24,6 +24,8 @@ pub mod codes {
     pub const INVALID_PARAMS: i64 = -32602;
     pub const AMIRI_ERROR: i64 = -32000;
     pub const UNAUTHORIZED: i64 = -32001;
+    /// A policy rule or a client's answer said no (ARCHITECTURE §6.3).
+    pub const POLICY_DENIED: i64 = -32002;
 }
 
 pub mod methods {
@@ -39,6 +41,11 @@ pub mod methods {
     pub const SESSION_INPUT: &str = "session.input";
     pub const SESSION_RESIZE: &str = "session.resize";
     pub const SESSION_KILL: &str = "session.kill";
+    pub const POLICY_PENDING: &str = "policy.pending";
+    pub const POLICY_ANSWER: &str = "policy.answer";
+    pub const PROJECT_ADD: &str = "project.add";
+    pub const PROJECT_LIST: &str = "project.list";
+    pub const PROJECT_REMOVE: &str = "project.remove";
 }
 
 /// Notification methods (daemon → client).
@@ -98,6 +105,11 @@ pub const METHODS: &[MethodSpec] = &[
     },
     logged(methods::SESSION_RESIZE, kinds::SESSION_RESIZED),
     logged(methods::SESSION_KILL, kinds::SESSION_KILL_REQUESTED),
+    read(methods::POLICY_PENDING),
+    logged(methods::POLICY_ANSWER, kinds::POLICY_ANSWERED),
+    logged(methods::PROJECT_ADD, kinds::PROJECT_REGISTERED),
+    read(methods::PROJECT_LIST),
+    logged(methods::PROJECT_REMOVE, kinds::PROJECT_REMOVED),
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -237,6 +249,10 @@ pub struct HelloResult {
     pub protocol_version: u32,
     pub pid: u32,
     pub instance: Option<String>,
+    /// This connection's id in the daemon. `policy.ask` events name the connection
+    /// whose request waits, so a client can recognise (and prompt for) its own.
+    #[serde(default)]
+    pub connection: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -279,11 +295,15 @@ pub type EventNotification = Event;
 pub struct SessionCreateParams {
     /// `{"kind": "cmd"}`, `{"kind": "powershell"}`, `{"kind": "pwsh"}`, `{"kind": "wsl", "distro": …}`.
     pub shell: Value,
-    /// Working directory; the user's profile folder if omitted.
+    /// Working directory; the user's profile folder if omitted. With `project`, the
+    /// project's folder unless given.
     #[serde(default)]
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
+    /// A registered project: the shell starts in its folder, and its rules apply.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -298,6 +318,68 @@ pub struct SessionInfo {
     pub attached: u32,
     pub cols: u16,
     pub rows: u16,
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// A request waiting for a client's answer (`policy.pending`, and the `policy.ask`
+/// event's payload).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PendingAsk {
+    pub id: String,
+    pub action: String,
+    #[serde(default)]
+    pub project: Option<String>,
+    /// What exactly would happen (e.g. which shell is killed).
+    pub detail: Value,
+    /// The rule that asked.
+    pub rule: String,
+    /// The client whose request waits, and its connection (`HelloResult::connection`).
+    pub client: String,
+    pub connection: u64,
+    pub asked_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnswerDecision {
+    Allow,
+    Deny,
+}
+
+/// How far an ALLOW reaches: this request only, or the same action (and project)
+/// until the daemon stops. Never "forever": permanent rules live in `policies.toml`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AnswerScope {
+    #[default]
+    Once,
+    Session,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAnswerParams {
+    pub id: String,
+    pub decision: AnswerDecision,
+    #[serde(default)]
+    pub scope: AnswerScope,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAddParams {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectNameParams {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectInfo {
+    pub name: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -20,7 +20,7 @@ pub async fn authenticate<R: AsyncBufRead + Unpin>(
     state: &State,
     reader: &mut R,
     tx: &mpsc::Sender<String>,
-) -> Option<String> {
+) -> Option<(String, u64)> {
     let line = match tokio::time::timeout(HELLO_TIMEOUT, read_line(reader, MAX_HELLO_LINE)).await {
         Ok(Ok(Some(line))) => line,
         Ok(Ok(None)) => return None, // closed before speaking: a probe, not an attack
@@ -54,14 +54,16 @@ pub async fn authenticate<R: AsyncBufRead + Unpin>(
         .await;
         return None;
     }
+    let connection = state.new_connection_id();
     let result = HelloResult {
         daemon_version: env!("CARGO_PKG_VERSION").into(),
         protocol_version: PROTOCOL_VERSION,
         pid: std::process::id(),
         instance: state.instance.name.clone(),
+        connection,
     };
     send(tx, &Response::ok(req.id, json!(result))).await;
-    Some(hello.client)
+    Some((hello.client, connection))
 }
 
 /// Client names end up in events and terminal output: short printable ASCII only.
@@ -69,13 +71,13 @@ pub fn valid_client_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_CLIENT_NAME && name.chars().all(|c| c.is_ascii_graphic())
 }
 
-async fn reject(
+async fn reject<T>(
     state: &State,
     tx: &mpsc::Sender<String>,
     id: Option<u64>,
     reason: &str,
     client: Option<&str>,
-) -> Option<String> {
+) -> Option<T> {
     state.record_auth_failure(reason, client);
     let error = RpcError::new(codes::UNAUTHORIZED, "unauthorized");
     let response = match id {

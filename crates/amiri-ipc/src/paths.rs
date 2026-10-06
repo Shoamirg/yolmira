@@ -72,6 +72,19 @@ impl Instance {
         self.home.join("logs")
     }
 
+    /// User settings: `%APPDATA%\AMIRI` for the user's daemon (phase1-plan Slice D);
+    /// a named instance keeps its own under its home, so tests never read the user's.
+    pub fn config_dir(&self) -> PathBuf {
+        match (&self.name, std::env::var_os("APPDATA")) {
+            (None, Some(appdata)) => PathBuf::from(appdata).join("AMIRI"),
+            _ => self.home.join("config"),
+        }
+    }
+
+    pub fn policies_path(&self) -> PathBuf {
+        self.config_dir().join("policies.toml")
+    }
+
     /// Arguments that make `amirid` serve this instance.
     pub fn daemon_args(&self) -> Vec<String> {
         let mut args = vec![

@@ -106,6 +106,7 @@ pub async fn create(
         cols: p.cols,
         rows: p.rows,
         client: client.into(),
+        project: p.project,
     };
     let state = Arc::clone(state);
     blocking(move || {
@@ -146,6 +147,7 @@ pub async fn list(state: &Arc<State>) -> Result<Value, RpcError> {
                     attached: 0,
                     cols: 0,
                     rows: 0,
+                    project: r.project,
                 });
             }
         }

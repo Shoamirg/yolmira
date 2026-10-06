@@ -159,3 +159,97 @@ fn corrupt_payload_is_an_error_not_a_default() {
         Err(StoreError::Payload(_))
     ));
 }
+
+fn project_event(kind: &'static str, payload: serde_json::Value) -> NewEvent {
+    NewEvent::new(kind, actors::USER, payload)
+}
+
+#[test]
+fn projects_are_registered_replaced_and_removed() {
+    let (_dir, path) = temp_db();
+    let mut store = Store::open(&path).unwrap();
+    store
+        .append(project_event(
+            kinds::PROJECT_REGISTERED,
+            json!({ "name": "web", "path": r"C:\src\web" }),
+        ))
+        .unwrap();
+    store
+        .append(project_event(
+            kinds::PROJECT_REGISTERED,
+            json!({ "name": "api", "path": r"C:\src\Проект" }),
+        ))
+        .unwrap();
+    // Registering a name again moves it.
+    store
+        .append(project_event(
+            kinds::PROJECT_REGISTERED,
+            json!({ "name": "web", "path": r"D:\web" }),
+        ))
+        .unwrap();
+    store
+        .append(project_event(
+            kinds::PROJECT_REMOVED,
+            json!({ "name": "api" }),
+        ))
+        .unwrap();
+    let projects = store.projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(
+        (projects[0].name.as_str(), projects[0].path.as_str()),
+        ("web", r"D:\web")
+    );
+    assert_eq!(store.project("web").unwrap().unwrap().path, r"D:\web");
+    assert!(store.project("api").unwrap().is_none());
+}
+
+#[test]
+fn sessions_remember_their_project_and_survive_a_rebuild() {
+    let (_dir, path) = temp_db();
+    let mut store = Store::open(&path).unwrap();
+    store
+        .append(project_event(
+            kinds::PROJECT_REGISTERED,
+            json!({ "name": "web", "path": r"C:\src\web" }),
+        ))
+        .unwrap();
+    store
+        .append(
+            NewEvent::new(
+                kinds::SESSION_CREATED,
+                actors::USER,
+                json!({ "shell_kind": "cmd", "cwd": r"C:\src\web", "project": "web" }),
+            )
+            .for_session("s1"),
+        )
+        .unwrap();
+    session_events(&mut store);
+    store.rebuild_projections().unwrap();
+    assert_eq!(
+        store.session("s1").unwrap().unwrap().project,
+        None,
+        "s1 was re-created without a project"
+    );
+    assert_eq!(store.projects().unwrap().len(), 1);
+}
+
+#[test]
+fn a_session_created_in_a_project_keeps_it() {
+    let (_dir, path) = temp_db();
+    let mut store = Store::open(&path).unwrap();
+    store
+        .append(
+            NewEvent::new(
+                kinds::SESSION_CREATED,
+                actors::USER,
+                json!({ "shell_kind": "cmd", "cwd": r"C:\src\web", "project": "web" }),
+            )
+            .for_session("p1"),
+        )
+        .unwrap();
+    store.rebuild_projections().unwrap();
+    assert_eq!(
+        store.session("p1").unwrap().unwrap().project.as_deref(),
+        Some("web")
+    );
+}

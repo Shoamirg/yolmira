@@ -55,6 +55,14 @@ pub mod kinds {
     pub const SESSION_DETACHED: &str = "session.detached";
     pub const SESSION_RESIZED: &str = "session.resized";
     pub const SESSION_KILL_REQUESTED: &str = "session.kill_requested";
+    pub const PROJECT_REGISTERED: &str = "project.registered";
+    pub const PROJECT_REMOVED: &str = "project.removed";
+    /// A request waits for a client's answer (ASK).
+    pub const POLICY_ASK: &str = "policy.ask";
+    /// A client answered a `policy.ask`.
+    pub const POLICY_ANSWERED: &str = "policy.answered";
+    /// Every policy verdict, automatic or answered (ARCHITECTURE §6.3).
+    pub const POLICY_DECISION: &str = "policy.decision";
 }
 
 /// Actors (§7.2 `actor`).

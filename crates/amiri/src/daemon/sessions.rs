@@ -76,6 +76,8 @@ pub struct LiveSession {
     pub id: String,
     pub shell: String,
     pub cwd: String,
+    /// The registered project it was started in, if any (its rules apply to it).
+    pub project: Option<String>,
     pub pty: PtySession,
     pub output: Arc<Output>,
     size: Mutex<(u16, u16)>,
@@ -102,6 +104,7 @@ impl LiveSession {
             attached: self.output.attached(),
             cols,
             rows,
+            project: self.project.clone(),
         }
     }
 
@@ -153,6 +156,22 @@ pub struct CreateRequest {
     pub cols: u16,
     pub rows: u16,
     pub client: String,
+    pub project: Option<String>,
+}
+
+/// With a project and no explicit folder, the shell starts in the project's folder.
+fn resolve_project(state: &State, req: CreateRequest) -> Result<CreateRequest, AmiriError> {
+    let Some(name) = req.project.as_deref() else {
+        return Ok(req);
+    };
+    let project = state.with_store(|s| s.project(name))?.ok_or_else(|| {
+        AmiriError::new("Start a shell", WHERE, format!("no project named {name:?}"))
+            .next_step("List projects with `amiri project list`; add one with `amiri project add <name> <path>`.")
+    })?;
+    Ok(CreateRequest {
+        cwd: req.cwd.or(Some(project.path)),
+        ..req
+    })
 }
 
 /// Start a shell. `session.created` is recorded first, so a shell that exits at once
@@ -173,12 +192,13 @@ pub fn create(state: &Arc<State>, req: CreateRequest) -> Result<Arc<LiveSession>
         )
         .next_step("End some with `amiri shell kill <id>`."));
     }
+    let req = resolve_project(state, req)?;
     let env = child_env();
     let spec = shell_spec(state, &req, env)?;
     let id = uuid::Uuid::now_v7().to_string();
     let shell = req.shell.label().to_string();
     let cwd = spec.cwd.to_string_lossy().into_owned();
-    let payload = json!({ "shell_kind": shell, "cwd": cwd, "program": spec.program, "cols": req.cols, "rows": req.rows });
+    let payload = json!({ "shell_kind": shell, "cwd": cwd, "program": spec.program, "cols": req.cols, "rows": req.rows, "project": req.project });
     state.record(
         NewEvent::new(
             kinds::SESSION_CREATED,
@@ -198,6 +218,7 @@ pub fn create(state: &Arc<State>, req: CreateRequest) -> Result<Arc<LiveSession>
         id: id.clone(),
         shell,
         cwd,
+        project: req.project.clone(),
         pty,
         output,
         size: Mutex::new((req.cols, req.rows)),

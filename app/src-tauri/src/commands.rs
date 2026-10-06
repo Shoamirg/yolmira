@@ -98,6 +98,8 @@ pub async fn session_create(
         cwd: None,
         cols,
         rows,
+        // The project picker arrives with Slice D's UI work.
+        project: None,
     };
     let v = daemon
         .call(WHAT, methods::SESSION_CREATE, json!(params))

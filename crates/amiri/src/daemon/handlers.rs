@@ -1,7 +1,7 @@
 //! Method handlers. Mutating methods record their event (protocol `METHODS` table).
 //! Store reads run on the blocking pool and in bounded pages.
 
-use super::server::to_line;
+use super::server::{to_line, Conn};
 use super::session_handlers::{self as sh, ConnTasks};
 use super::state::State;
 use amiri_core::event::kinds;
@@ -30,10 +30,11 @@ pub enum Outcome {
 pub async fn dispatch(
     state: &Arc<State>,
     req: &Request,
-    client: &str,
+    conn: &Conn,
     tx: &mpsc::Sender<String>,
     tasks: &mut ConnTasks,
 ) -> Outcome {
+    let client = conn.client.as_str();
     let result = match req.method.as_str() {
         methods::SESSION_CREATE => match params(req) {
             Ok(p) => sh::create(state, p, client).await,

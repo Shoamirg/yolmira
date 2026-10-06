@@ -114,6 +114,13 @@ fn main() {
     let for_setup = Arc::clone(&daemon);
     let result = tauri::Builder::default()
         .manage(daemon)
+        // Closing the window ends the UI (never the daemon); log it, so an exit that
+        // looks like a crash can be told apart from a closed window.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                tracing::info!("window {} close requested", window.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::daemon_state,
             commands::daemon_start,

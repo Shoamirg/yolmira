@@ -158,6 +158,7 @@ impl Client {
                 protocol_version: 0,
                 pid: 0,
                 instance: None,
+                connection: 0,
             },
         };
         let params = HelloParams {

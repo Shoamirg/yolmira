@@ -8,7 +8,7 @@ use amiri_ipc::Instance;
 use amiri_store::Store;
 use serde_json::json;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -25,6 +25,7 @@ pub struct State {
     pub elevated: bool,
     pub started_at: String,
     clients: AtomicU32,
+    next_connection: AtomicU64,
     auth_failures: Mutex<HashMap<String, (Instant, u64)>>,
     pub sessions: super::sessions::Sessions,
 }
@@ -40,6 +41,7 @@ impl State {
             elevated,
             started_at: amiri_core::time::now_rfc3339(),
             clients: AtomicU32::new(0),
+            next_connection: AtomicU64::new(1),
             auth_failures: Mutex::new(HashMap::new()),
             sessions: super::sessions::Sessions::default(),
         }
@@ -105,6 +107,11 @@ impl State {
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.events.subscribe()
+    }
+
+    /// A new id for an authenticated connection (unique for this daemon run).
+    pub fn new_connection_id(&self) -> u64 {
+        self.next_connection.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn client_connected(&self) {

@@ -9,7 +9,7 @@ use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
 pub use migrate::{MigrationReport, LATEST_VERSION};
-pub use projection::SessionRow;
+pub use projection::{ProjectRow, SessionRow};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -105,6 +105,16 @@ impl Store {
         Ok(projection::sessions(&self.conn)?
             .into_iter()
             .find(|s| s.id == id))
+    }
+
+    pub fn projects(&self) -> Result<Vec<ProjectRow>> {
+        projection::projects(&self.conn)
+    }
+
+    pub fn project(&self, name: &str) -> Result<Option<ProjectRow>> {
+        Ok(projection::projects(&self.conn)?
+            .into_iter()
+            .find(|p| p.name == name))
     }
 
     /// Drop the projections and replay every event into them.

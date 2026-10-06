@@ -61,6 +61,12 @@ impl PipeFactory {
     }
 }
 
+/// An authenticated connection: the client's name and its id for this daemon run.
+pub struct Conn {
+    pub client: String,
+    pub id: u64,
+}
+
 /// Accept connections until the task is dropped.
 pub async fn serve(state: Arc<State>, mut factory: PipeFactory, first: NamedPipeServer) {
     let gate = Arc::new(Semaphore::new(MAX_UNAUTHENTICATED));
@@ -105,9 +111,13 @@ async fn connection(
     let client = authenticate(&state, &mut reader, &tx).await;
     drop(permit);
     let mut tasks = ConnTasks::default();
-    if let Some(client) = client {
+    if let Some((client, connection)) = client {
         state.client_connected();
-        serve_requests(&state, &mut reader, &tx, &client, &mut tasks).await;
+        let conn = Conn {
+            client,
+            id: connection,
+        };
+        serve_requests(&state, &mut reader, &tx, &conn, &mut tasks).await;
         state.client_disconnected();
     }
     // Subscription and attachment tasks hold senders; stop them so the writer finishes.
@@ -122,9 +132,11 @@ async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
     state: &Arc<State>,
     reader: &mut R,
     tx: &mpsc::Sender<String>,
-    client: &str,
+    conn: &Conn,
     tasks: &mut ConnTasks,
 ) {
+    let client = conn.client.as_str();
+    tracing::debug!(client, connection = conn.id, "client authenticated");
     loop {
         let line = match read_line(reader, MAX_LINE).await {
             Ok(Some(line)) => line,
@@ -135,7 +147,7 @@ async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
             }
         };
         let reply = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => match handlers::dispatch(state, &req, client, tx, tasks).await {
+            Ok(req) => match handlers::dispatch(state, &req, conn, tx, tasks).await {
                 Outcome::Reply(r) => r,
                 Outcome::ReplyThenStop(r) => {
                     send(tx, &r).await;
