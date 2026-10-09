@@ -5,6 +5,7 @@
 mod auth;
 mod config_guard;
 mod console;
+mod crash_log;
 mod handlers;
 mod outbox;
 mod peer;
@@ -98,6 +99,9 @@ fn start(args: &Args, console_ok: bool) -> Result<(), Failure> {
     ] {
         std::fs::create_dir_all(&dir)
             .map_err(|e| startup(format!("create {}: {e}", dir.display())))?;
+    }
+    if !args.foreground {
+        crash_log::install(&instance.log_dir());
     }
     let _log_guard = init_logging(&instance, args.foreground);
     tracing::info!(console_ok, elevated, instance = ?instance.name, "yolmirad starting");

@@ -196,3 +196,32 @@ fn ctrl_c_handling_s1d() {
         .expect("daemon.stopped event");
     assert_eq!(stopped["payload"]["reason"], "console_close");
 }
+
+/// A detached daemon's stderr and panics go to `logs\yolmirad-stderr.log`, written
+/// synchronously, so a crash leaves its reason behind (Phase 1 exit checks: one daemon
+/// died with 0xC0000409 and left no trace). A panicking task doesn't end the daemon.
+#[test]
+fn crash_log_records_a_panic() {
+    let env = TestEnv::new();
+    let pid = env.start()["pid"].as_u64().expect("pid");
+    let log = env.home().join("logs").join("yolmirad-stderr.log");
+    let header = format!("--- yolmirad pid {pid} started");
+    env.wait_until("the crash log's header", Duration::from_secs(10), || {
+        std::fs::read_to_string(&log).is_ok_and(|t| t.contains(&header))
+    });
+    env.block_on(Duration::from_secs(30), async {
+        let mut c = env.client().await;
+        c.call_value("debug.panic", serde_json::json!({}))
+            .await
+            .expect("debug.panic");
+    });
+    env.wait_until(
+        "the panic in the crash log",
+        Duration::from_secs(10),
+        || {
+            std::fs::read_to_string(&log)
+                .is_ok_and(|t| t.contains("debug.panic requested") && t.contains("panic in thread"))
+        },
+    );
+    assert_eq!(env.running_pid(), Some(pid), "the daemon carries on");
+}

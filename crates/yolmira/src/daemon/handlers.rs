@@ -101,6 +101,12 @@ pub async fn dispatch(
         DEBUG_SPAWN_IN_AGENT_JOB => params(req).and_then(|p| spawn_in_agent_job(state, p)),
         #[cfg(debug_assertions)]
         DEBUG_OUTPUT_STATS => Ok(output_stats(state)),
+        #[cfg(debug_assertions)]
+        DEBUG_PANIC => {
+            // A task panics; the daemon carries on. Tests check the crash log has it.
+            tokio::spawn(async { panic!("debug.panic requested") });
+            Ok(json!({ "panicking": true }))
+        }
         methods::EVENTS_LIST => match params::<EventsListParams>(req) {
             Ok(p) => list(state, p).await,
             Err(e) => Err(e),
@@ -168,6 +174,11 @@ pub const DEBUG_SPAWN_IN_AGENT_JOB: &str = "debug.spawn_in_agent_job";
 /// (`outbox`), so a test can check that slow clients stayed within them.
 #[cfg(debug_assertions)]
 pub const DEBUG_OUTPUT_STATS: &str = "debug.output_stats";
+
+/// Debug builds only, for tests: make a daemon task panic, to check that the panic is
+/// written to the crash log (`crash_log`).
+#[cfg(debug_assertions)]
+pub const DEBUG_PANIC: &str = "debug.panic";
 
 #[cfg(debug_assertions)]
 fn output_stats(state: &State) -> Value {

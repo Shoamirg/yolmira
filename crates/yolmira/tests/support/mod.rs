@@ -285,6 +285,13 @@ impl Drop for TestEnv {
                     .output();
             }
         }
+        // A failing test keeps its home (daemon log, database) for diagnosis.
+        if std::thread::panicking() {
+            if let Ok(spare) = tempfile::tempdir() {
+                let kept = std::mem::replace(&mut self.home, spare).keep();
+                eprintln!("TestEnv: kept the failing test's home: {}", kept.display());
+            }
+        }
     }
 }
 
