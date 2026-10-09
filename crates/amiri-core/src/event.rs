@@ -11,6 +11,13 @@ pub struct Event {
     pub ts: String,
     pub kind: String,
     pub actor: String,
+    /// The person the event acts for (team mode: each AMIRI install has one). `None`
+    /// only on events from before identity existed: the local person.
+    #[serde(default)]
+    pub person_id: Option<String>,
+    /// The agent that did it, if an agent did.
+    #[serde(default)]
+    pub agent_id: Option<String>,
     pub session_id: Option<String>,
     pub payload: Value,
 }
@@ -20,6 +27,9 @@ pub struct Event {
 pub struct NewEvent {
     pub kind: &'static str,
     pub actor: String,
+    /// Filled with the local person by the daemon when left `None`.
+    pub person_id: Option<String>,
+    pub agent_id: Option<String>,
     pub session_id: Option<String>,
     pub payload: Value,
 }
@@ -29,8 +39,24 @@ impl NewEvent {
         Self {
             kind,
             actor: actor.into(),
+            person_id: None,
+            agent_id: None,
             session_id: None,
             payload,
+        }
+    }
+
+    pub fn for_person(self, person_id: impl Into<String>) -> Self {
+        Self {
+            person_id: Some(person_id.into()),
+            ..self
+        }
+    }
+
+    pub fn by_agent(self, agent_id: impl Into<String>) -> Self {
+        Self {
+            agent_id: Some(agent_id.into()),
+            ..self
         }
     }
 

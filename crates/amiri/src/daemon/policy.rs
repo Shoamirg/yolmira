@@ -171,6 +171,9 @@ async fn ask(state: &Arc<State>, c: &Check<'_>, rule: &str) -> Result<Outcome, R
         rule: rule.into(),
         client: c.client.into(),
         connection: c.connection,
+        person_id: Some(state.person.person_id.clone()),
+        // Phase 1 has no agents; Phase 4 sets the requesting agent here.
+        agent_id: None,
         asked_at: amiri_core::time::now_rfc3339(),
     };
     let (reply, answer) = oneshot::channel();
@@ -235,6 +238,8 @@ fn record_decision(
         "limited_by": limited_by,
         "answered_by": o.by,
         "requested_by": c.client,
+        "requested_by_person": state.person.person_id,
+        "requested_by_agent": Value::Null,
     });
     let event = NewEvent::new(
         kinds::POLICY_DECISION,
@@ -376,7 +381,7 @@ pub fn answer(
     let event = NewEvent::new(
         kinds::POLICY_ANSWERED,
         format!("client:{client}"),
-        json!({ "id": p.id, "action": w.ask.action, "decision": p.decision, "scope": p.scope, "via": via, "pid": peer.pid }),
+        json!({ "id": p.id, "action": w.ask.action, "decision": p.decision, "scope": p.scope, "via": via, "pid": peer.pid, "answered_by_person": state.person.person_id }),
     );
     state.record(event).map_err(RpcError::amiri)?;
     // The requester may have gone meanwhile; its own decision event says so.

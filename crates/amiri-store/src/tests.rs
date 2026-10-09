@@ -253,3 +253,35 @@ fn a_session_created_in_a_project_keeps_it() {
         Some("web")
     );
 }
+
+#[test]
+fn events_carry_person_and_agent_and_older_rows_have_none() {
+    let (_dir, path) = temp_db();
+    // A database from before identity: one event without the columns.
+    {
+        let conn = Connection::open(&path).unwrap();
+        migrate::apply_up_to(&conn, 3);
+        conn.execute(
+            "INSERT INTO events (id, ts, kind, actor, payload) VALUES ('e1', 't', 'daemon.started', 'amiri', '{}')",
+            [],
+        )
+        .unwrap();
+    }
+    let mut store = Store::open(&path).unwrap();
+    store
+        .append(
+            NewEvent::new(kinds::SESSION_KILL_REQUESTED, actors::USER, json!({}))
+                .for_person("p-1")
+                .by_agent("a-1"),
+        )
+        .unwrap();
+    let all = store.list(0, 10, None).unwrap();
+    assert_eq!(
+        (all[0].person_id.as_deref(), all[0].agent_id.as_deref()),
+        (None, None)
+    );
+    assert_eq!(
+        (all[1].person_id.as_deref(), all[1].agent_id.as_deref()),
+        (Some("p-1"), Some("a-1"))
+    );
+}

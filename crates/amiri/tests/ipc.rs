@@ -202,3 +202,44 @@ fn subscribers_receive_new_events() {
         assert!(live.params["seq"].as_i64() > first.params["seq"].as_i64());
     });
 }
+
+/// Team mode needs no migration later (decisions.md 2026-10-09): every event names the
+/// person this install acts for, and that id survives restarts.
+#[test]
+fn events_name_the_person_and_it_is_stable() {
+    let env = TestEnv::new();
+    env.start();
+    let path = env.instance().config_dir().join("identity.toml");
+    let text = std::fs::read_to_string(&path).expect("identity.toml created on first start");
+    let id_line = text
+        .lines()
+        .find(|l| l.starts_with("person_id"))
+        .expect("person_id");
+    let person = id_line.split('"').nth(1).expect("quoted id").to_string();
+    let _ = env.amiri(&["daemon", "stop"]);
+    env.wait_until("daemon stopped", Duration::from_secs(10), || {
+        env.running_pid().is_none()
+    });
+    env.start();
+    let events = env.events();
+    assert!(events.len() >= 5, "two runs' events: {events:?}");
+    for e in &events {
+        assert_eq!(e["person_id"], person.as_str(), "{e}");
+    }
+    let started: Vec<_> = events
+        .iter()
+        .filter(|e| e["kind"] == "daemon.started")
+        .collect();
+    assert_eq!(started.len(), 2);
+    assert!(started
+        .iter()
+        .all(|e| e["payload"]["person_id"] == person.as_str()));
+    let stop_decision = events
+        .iter()
+        .find(|e| e["kind"] == "policy.decision")
+        .expect("daemon.stop's decision");
+    assert_eq!(
+        stop_decision["payload"]["requested_by_person"],
+        person.as_str()
+    );
+}

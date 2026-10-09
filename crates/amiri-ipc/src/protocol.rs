@@ -342,6 +342,12 @@ pub struct PendingAsk {
     /// The client whose request waits, and its connection (`HelloResult::connection`).
     pub client: String,
     pub connection: u64,
+    /// Who asked (team mode): the person the request acts for, and the agent if one
+    /// made it. The task owner answers in team mode.
+    #[serde(default)]
+    pub person_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
     pub asked_at: String,
 }
 
