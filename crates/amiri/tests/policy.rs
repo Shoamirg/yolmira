@@ -110,9 +110,13 @@ fn ask_round_trip() {
     assert_eq!(decisions.len(), 2, "{decisions:?}");
     assert_eq!(decisions[0]["payload"]["result"], "allow");
     assert_eq!(decisions[1]["payload"]["result"], "deny");
+    // The kill's own events (session.create has its own decision event).
     let kinds: Vec<String> = env
         .events()
         .iter()
+        .filter(|e| {
+            e["payload"]["action"] == "session.kill" || e["kind"] == "session.kill_requested"
+        })
         .map(|e| e["kind"].as_str().unwrap_or("").to_string())
         .collect();
     let pos = |k: &str| {
