@@ -5,7 +5,7 @@
 // locale-neutral values: markers the shell computes, numbers, exit codes, pids.
 // Screens are read from xterm's DOM rows: the text the user sees, no test hooks.
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -429,8 +429,37 @@ export async function assertNoLeftovers(driverPort) {
   }
 }
 
+/** Newest modification time of the sources the binaries are built from. */
+function newestSource() {
+  const roots = ["app/src", "app/src-tauri/src", "app/index.html", "crates"].map((r) => join(ROOT, r));
+  const exts = /\.(rs|ts|tsx|css|html|toml|sql)$/;
+  let newest = { time: 0, file: "" };
+  const visit = (path) => {
+    const st = statSync(path);
+    if (st.isDirectory()) {
+      for (const name of readdirSync(path)) if (name !== "target" && name !== "node_modules") visit(join(path, name));
+    } else if (exts.test(path) && st.mtimeMs > newest.time) {
+      newest = { time: st.mtimeMs, file: path };
+    }
+  };
+  roots.forEach(visit);
+  return newest;
+}
+
+/**
+ * The binaries must exist and be newer than every source file: a run on stale
+ * binaries tests old code and its results mean nothing (it happened once: npm's
+ * ignore-scripts silently skipped the pre-test build).
+ */
 export function requireBuilt() {
+  const src = newestSource();
   for (const exe of [APP_EXE, CLI_EXE, DAEMON_EXE]) {
     if (!existsSync(exe)) throw new Error(`${exe} is missing: run \`npm run e2e\` (it builds first)`);
+    const built = statSync(exe).mtimeMs;
+    console.log(`# ${exe.split(/[\\/]/).pop()} built ${new Date(built).toISOString()}`);
+    if (built < src.time) {
+      throw new Error(`${exe} is older than ${src.file} (${new Date(src.time).toISOString()}): run \`npm run e2e\` (it builds first)`);
+    }
   }
+  console.log(`# newest source ${new Date(src.time).toISOString()} ${src.file}`);
 }

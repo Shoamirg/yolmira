@@ -81,11 +81,15 @@ fn init_logging(instance: &Result<Instance, AmiriError>) {
     }
     let filter = tracing_subscriber::EnvFilter::try_from_env("AMIRI_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
+    let result = tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_writer(tracing_appender::rolling::daily(dir, "ui.log"))
+        .with_writer(tracing_appender::rolling::daily(&dir, "ui.log"))
         .with_ansi(false)
-        .init();
+        .try_init();
+    if let Err(e) = result {
+        // No console and no log: leave the reason where the log would be.
+        let _ = std::fs::write(dir.join("ui-logging-failed.txt"), e.to_string());
+    }
 }
 
 /// Mark this UI as running (and report earlier ones that ended unrecorded).
