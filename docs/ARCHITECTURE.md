@@ -261,6 +261,7 @@ React + TypeScript + Vite; `@xterm/xterm` + fit/web-links addons (the de facto b
 - Every decision (including automatic ALLOWs) is an event: `policy.decision {action, rule, result, actor}`.
 - ASK blocks the task in `AWAITING_APPROVAL` (§8). Approvals can be scoped: once, for this task, or for this session. Never "forever" from a prompt; permanent changes go through Settings.
 - `git reset --hard`, `git clean`, `git push --force`, and deletion of untracked files are hard-classified as destructive; they are ASK even if a broad rule says ALLOW, unless the user sets an explicit per-action override.
+- **Config files are guarded** `[DECISION 2026-10-09]`: agents run as the user and could edit `policies.toml` or `agents.toml`. An edit that loosens either waits for a person's confirmation in the UI (one-time code, refused from agent jobs); one that only tightens applies at once; every change is an event with a diff; the confirmed versions live in the event log. Until confirmed, each decision is the stricter of the two versions.
 
 ### 6.4 Secrets
 - AMIRI stores **references** to secrets, never values: key file paths, Credential Manager target names.

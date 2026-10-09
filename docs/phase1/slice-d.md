@@ -41,6 +41,19 @@ Agents will run as the user, with a shell, and can read the pipe token. So the t
   - An agent that escapes its job (e.g. WMI process creation) passes (a); it still needs the code that only the UI shows (and R14 then applies).
   - Approving needs the AMIRI window: the CLI alone can't approve without its code. Intended, but `amiri daemon stop` (ASK by default) now needs the window open.
 
+## Config files agents could edit (reviewer, 2026-10-09)
+
+Agents run as the user and can edit `policies.toml` and `agents.toml`, which would bypass every approval (e.g. `"daemon.stop" = "allow"`). Now (`0790840`):
+
+- **The confirmed text** of each file is kept in the event log (`policy.config_accepted`, full content). An instance's first start (and the guard's first start on an existing install) confirms the files as found: trust on first use, logged with that reason.
+- **Every change is logged with a line diff** (`policy.config_changed {file, diff, loosenings, applied}`). The daemon looks at both files on every policy check and every 2 s.
+- **Tightening applies at once** (logged, then confirmed with reason "an edit that only tightens").
+- **Loosening waits for a person.** Compared by behaviour, not text: every action the rules can reach (known actions, every pattern either version names, a representative action under each wildcard), globally and in every project either names; any decision that gets less strict is a loosening. For `agents.toml`: a dropped agent, a wider or removed tested range, a changed command, a warning demoted. The edit opens a confirmation in the approval machinery: the UI shows the file, what it loosens and the diff, with the one-time code; agent-job processes can't answer; three wrong codes decline it. Until confirmed, each decision is the stricter of the confirmed and the edited rules, so the edit's tightening parts still apply. A declined text isn't asked again while the file keeps it.
+- **Fails closed:** an edit that doesn't parse applies the confirmed policy with at least ASK everywhere; for `agents.toml`, the confirmed list.
+- **`amiri doctor`** uses the confirmed agent list and reports unconfirmed edits (`config_policies`, `config_agents`).
+- **Tests:** `agent_edit_allowing_daemon_stop_still_asks` (a process in an agent job overwrites policies.toml to allow `daemon.stop`: the edit is logged with its diff and not applied, stopping still asks, the agent can't confirm its own edit even with the right code, a person's confirmation applies it); `tightening_edit_applies_at_once`; E2E `config_edit_needs_confirmation` (the window shows the diff; a kill still asks until the edit is confirmed); unit tests for the comparison, the diff, both files' rules.
+- **Residual:** a same-user process could also edit the event log (the database) and so the confirmed text. Agents at low integrity (S7, R14) can write neither file nor database.
+
 ## Findings
 
 1. **The daemon's allowlisted environment held.** A test variable naming the trusted test UI reached the daemon only when the test started it directly (cargo, in-job); a detached daemon (the launcher's path) got the allowlist (§9.6) and never saw it. Debug builds now read the test UI's path from a file in the instance's own config folder.
@@ -60,7 +73,7 @@ Agents will run as the user, with a shell, and can read the pipe token. So the t
 
 ## Open
 
-- **CI green once** (billing), then Slice D acceptance.
+- **CI green on the latest commit** (billing; not a rerun of the old run on `53f7739`), then Slice D acceptance. After acceptance: the Phase 1 exit checks (decisions.md 2026-10-09) before anything else.
 - A request whose client disconnects isn't cancelled: it waits until answered or the 600 s limit. Harmless (the decision is logged), but the panel shows it meanwhile.
 - `amiri doctor` doesn't yet report identity (person/install) or `policies.toml` validity; the daemon reports an invalid file by asking for everything.
 - The UI doesn't show who (person/agent) asked; Phase 1 has one person and no agents.

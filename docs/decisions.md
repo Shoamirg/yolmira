@@ -48,6 +48,9 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 | 2026-10-09 | UI automation by same-user processes | Named risk **R14**: any same-user process can drive the UI (send input, read window text), so an agent could read the code or click Allow without escaping its job. Candidate fix: agents at low integrity (UIPI; the pipe rejects them). Spike **S7** at the start of Phase 2, since Claude Code may not work at low integrity. | ARCHITECTURE §16.4 R14, §16.2 Phase 2. |
 | 2026-10-09 | Slice D acceptance | Not accepted until CI has run green once (CI was stopped by GitHub billing on 2026-10-09; the user fixes billing). | Slice D findings record the CI run. |
 | 2026-10-09 | Off-screen E2E windows | Off-screen by default after an on/off-screen comparison on the same build matched (6/6 each, 36.8 s vs 36.3 s, every page `visible`); `AMIRI_E2E_ONSCREEN=1` shows them. | `docs/phase1/slice-c.md`. |
+| 2026-10-09 | Config files vs agents | Agents can edit `policies.toml` / `agents.toml`. **Built:** loosening edits wait for a person's confirmation in the UI (same one-time-code mechanism; agent jobs refused); tightening applies at once; every change is logged with a diff; confirmed versions live in the event log; first start trusts the files as found. | `crates/amiri/src/{config_files.rs, daemon/config_guard.rs}`; tests incl. a simulated agent editing policies.toml to allow `daemon.stop`. |
+| 2026-10-09 | CI for Slice D | CI must go green on the **latest** commit; the run on the old commit `53f7739` is not rerun. | Slice D acceptance. |
+| 2026-10-09 | After Slice D acceptance | Phase 1 exit checks before anything else: the 1-hour soak, WSL-terminate with a throwaway distro, the manual logoff check, the pipe-owner check with a second Windows account, and the main close-UI/reopen/shell-survives test on a fresh build. Admin PowerShell step 1 and Phase 2 come after Phase 1 exits. | phase1-plan §4. |
 
 ## Proposed, awaiting review
 

@@ -148,16 +148,19 @@ fn events_persist_across_restart() {
     env.wait_until("daemon stopped", Duration::from_secs(10), || {
         env.running_pid().is_none()
     });
-    let first_run: Vec<_> = env.events().into_iter().take(4).collect();
+    let first_run: Vec<_> = env.events().into_iter().take(6).collect();
     let kinds: Vec<_> = first_run
         .iter()
         .map(|e| e["kind"].as_str().unwrap_or_default())
         .collect();
-    // Stopping goes through the policy gate (Slice D): its decision is logged first.
+    // The first start confirms both config files as found (the config guard), and
+    // stopping goes through the policy gate: its decision is logged first.
     assert_eq!(
         kinds,
         vec![
             "daemon.started",
+            "policy.config_accepted",
+            "policy.config_accepted",
             "policy.decision",
             "daemon.stopping",
             "daemon.stopped"
@@ -165,8 +168,12 @@ fn events_persist_across_restart() {
     );
     // `events` restarted the daemon; the first run's events are unchanged, in order.
     let after_restart = env.events();
-    assert_eq!(&after_restart[..4], &first_run[..]);
-    assert_eq!(after_restart[4]["kind"], "daemon.started");
+    assert_eq!(&after_restart[..6], &first_run[..]);
+    // A restart doesn't confirm the files again: their confirmed versions are known.
+    assert_eq!(after_restart[6]["kind"], "daemon.started");
+    assert!(after_restart[7..]
+        .iter()
+        .all(|e| e["kind"] != "policy.config_accepted"));
     assert!(after_restart
         .windows(2)
         .all(|w| w[0]["seq"].as_i64() < w[1]["seq"].as_i64()));
@@ -191,6 +198,14 @@ fn subscribers_receive_new_events() {
             .unwrap();
         assert_eq!(first.method, notifications::EVENT);
         assert_eq!(first.params["kind"], "daemon.started");
+        // Then the first start's config confirmations (the config guard).
+        for _ in 0..2 {
+            let e = tokio::time::timeout(Duration::from_secs(10), sub.next_notification())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(e.params["kind"], "policy.config_accepted");
+        }
         // A new event from another client arrives live.
         let pipe = open_pipe(&env.instance()).await.unwrap();
         let _ = Client::handshake(pipe, "wrong", "other").await;
