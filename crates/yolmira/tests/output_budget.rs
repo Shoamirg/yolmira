@@ -19,16 +19,24 @@ const LIMIT: Duration = Duration::from_secs(600);
 
 /// The test plays a UI window watching many shells: as the verified UI it may hold more
 /// connections than an ordinary process (`daemon::slots`).
-fn ui_env() -> TestEnv {
+/// The floods run one at a time even when the harness runs tests in parallel: sharing
+/// the CPU, a flood may write too little for the slow client to fall behind, and the
+/// test would prove nothing. Held for the whole test (the returned guard).
+static ONE_FLOOD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn ui_env() -> (TestEnv, std::sync::MutexGuard<'static, ()>) {
+    let turn = ONE_FLOOD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let env = TestEnv::new();
     env.trust_this_test_as_ui();
     env.start();
-    env
+    (env, turn)
 }
 
 fn flood(marker: &str) -> String {
     format!(
-        "$e=(Get-Date).AddSeconds({FLOOD_SECS}); $i=0; while((Get-Date) -lt $e){{ $i++; Write-Output ('L' + $i + 'E') }}; Write-Output (\"{marker}\" + (6*7))\r"
+        "$e=(Get-Date).AddSeconds({FLOOD_SECS}); $i=0; while((Get-Date) -lt $e){{ $i++; Write-Output ('L' + $i + 'E' + ('x' * 200)) }}; Write-Output (\"{marker}\" + (6*7))\r"
     )
 }
 
@@ -91,7 +99,7 @@ fn within_budgets(v: &Value) {
 
 #[test]
 fn slow_client_stays_within_its_budget() {
-    let env = ui_env();
+    let (env, _turn) = ui_env();
     env.block_on(LIMIT, async {
         let mut s = powershell(&env).await;
         s.send(&flood("YOLMIRA_DONE")).await;
@@ -113,7 +121,7 @@ fn slow_client_stays_within_its_budget() {
 fn many_slow_clients_stay_within_the_daemon_budget() {
     // 3 flooding shells, 4 slow clients each: 12 x 8 MiB of demand against 64 MiB. A 13th,
     // fast client on the first shell must never be resynced, budgets full or not.
-    let env = ui_env();
+    let (env, _turn) = ui_env();
     env.block_on(LIMIT, async {
         let mut clients = Vec::new();
         for _ in 0..3 {
@@ -183,7 +191,7 @@ async fn fast_and_slow(env: &TestEnv) -> (Shell, Shell) {
 
 #[test]
 fn fast_client_on_the_same_shell_is_unaffected() {
-    let env = ui_env();
+    let (env, _turn) = ui_env();
     env.block_on(LIMIT, async {
         let (fast, slow) = fast_and_slow(&env).await;
         let v = stats(&env).await;
@@ -202,7 +210,7 @@ fn fast_client_on_the_same_shell_is_unaffected() {
 
 #[test]
 fn resynced_client_output_is_correct_and_gap_free() {
-    let env = ui_env();
+    let (env, _turn) = ui_env();
     env.block_on(LIMIT, async {
         let (fast, slow) = fast_and_slow(&env).await;
         assert!(slow.resets >= 2, "the slow client never resynced: {} resets", slow.resets);
