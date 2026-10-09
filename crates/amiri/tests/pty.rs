@@ -302,6 +302,9 @@ fn soak_1h_output_flood() {
         s.expect_within("AMIRI_DONE42", Duration::from_secs(secs + 120)).await;
         s.send("Write-Output (\"AMIRI_AFTER\" + (6*7))\r").await;
         s.expect("AMIRI_AFTER42").await;
+        // No lost exit status after the flood.
+        s.send("exit 7\r").await;
+        assert_eq!(s.wait_exit().await, Some(7), "exit status after the soak");
     });
     // Scrollback is bounded: the daemon's memory stays far below the flood volume.
     let ws =
