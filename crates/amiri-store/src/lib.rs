@@ -61,20 +61,22 @@ impl Store {
             kind: new.kind.to_string(),
             actor: new.actor,
             person_id: new.person_id,
+            install_id: new.install_id,
             agent_id: new.agent_id,
             session_id: new.session_id,
             payload: new.payload,
         };
         let tx = self.conn.transaction()?;
         tx.execute(
-            "INSERT INTO events (id, ts, kind, actor, person_id, agent_id, session_id, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO events (id, ts, kind, actor, person_id, install_id, agent_id, session_id, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 event.id,
                 event.ts,
                 event.kind,
                 event.actor,
                 event.person_id,
+                event.install_id,
                 event.agent_id,
                 event.session_id,
                 serde_json::to_string(&event.payload)?
@@ -94,7 +96,7 @@ impl Store {
         // Exact prefix match: LIKE would treat `_` and `%` in the prefix as wildcards.
         let prefix = kind_prefix.unwrap_or("");
         let mut stmt = self.conn.prepare(
-            "SELECT seq, id, ts, kind, actor, session_id, payload, person_id, agent_id FROM events
+            "SELECT seq, id, ts, kind, actor, session_id, payload, person_id, agent_id, install_id FROM events
              WHERE seq > ?1 AND substr(kind, 1, length(?2)) = ?2 ORDER BY seq LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![after, prefix, limit], RawEvent::from_row)?;
@@ -159,6 +161,7 @@ struct RawEvent {
     payload: String,
     person_id: Option<String>,
     agent_id: Option<String>,
+    install_id: Option<String>,
 }
 
 impl RawEvent {
@@ -173,6 +176,7 @@ impl RawEvent {
             payload: r.get(6)?,
             person_id: r.get(7)?,
             agent_id: r.get(8)?,
+            install_id: r.get(9)?,
         })
     }
 
@@ -185,6 +189,7 @@ impl RawEvent {
             kind: self.kind,
             actor: self.actor,
             person_id: self.person_id,
+            install_id: self.install_id,
             agent_id: self.agent_id,
             session_id: self.session_id,
             payload,

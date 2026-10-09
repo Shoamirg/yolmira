@@ -10,6 +10,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (2, include_str!("../migrations/0002_sessions.sql")),
     (3, include_str!("../migrations/0003_projects.sql")),
     (4, include_str!("../migrations/0004_identity.sql")),
+    (5, include_str!("../migrations/0005_install.sql")),
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;

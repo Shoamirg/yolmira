@@ -347,6 +347,8 @@ pub struct PendingAsk {
     #[serde(default)]
     pub person_id: Option<String>,
     #[serde(default)]
+    pub install_id: Option<String>,
+    #[serde(default)]
     pub agent_id: Option<String>,
     pub asked_at: String,
 }

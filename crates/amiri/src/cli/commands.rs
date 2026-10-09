@@ -2,7 +2,8 @@
 
 use super::output::Out;
 use super::{
-    approve, exit, project, shell, Cli, Command, DaemonAction, ProjectAction, ShellAction,
+    approve, exit, identity, project, shell, Cli, Command, DaemonAction, IdentityAction,
+    ProjectAction, ShellAction,
 };
 use amiri_core::{AmiriError, Event};
 use amiri_ipc::protocol::{
@@ -55,6 +56,12 @@ pub async fn run(cli: Cli) -> u8 {
         } => match (list, id) {
             (true, _) | (false, None) => approve::list(&out, instance).await,
             (false, Some(id)) => approve::answer(&out, instance, id, code, deny, session).await,
+        },
+        Command::Identity { action } => match action {
+            IdentityAction::Show => identity::show(&out, &instance),
+            IdentityAction::Import { file, replace } => {
+                identity::import(&out, &instance, file, replace)
+            }
         },
         Command::Project { action } => match action {
             ProjectAction::Add { name, path } => project::add(&out, instance, name, path).await,

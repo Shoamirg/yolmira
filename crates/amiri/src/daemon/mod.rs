@@ -5,7 +5,6 @@
 mod auth;
 mod console;
 mod handlers;
-mod identity;
 mod peer;
 mod policy;
 mod project_handlers;
@@ -143,15 +142,17 @@ fn run(instance: Instance, elevated: bool) -> Result<(), String> {
         token.as_bytes(),
     )
     .map_err(|e| format!("write token: {e}"))?;
-    let person = identity::load_or_create(&instance.config_dir())?;
-    let state = Arc::new(State::new(store, instance, token, elevated, person));
+    let identity =
+        crate::identity::Identity::load_or_create(&instance.config_dir(), &instance.home)?;
+    let state = Arc::new(State::new(store, instance, token, elevated, identity));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("runtime: {e}"))?;
     let started = json!({
-        "person_id": state.person.person_id,
-        "display_name": state.person.display_name,
+        "person_id": state.identity.person.person_id,
+        "display_name": state.identity.person.display_name,
+        "install_id": state.identity.install.install_id,
         "pid": std::process::id(),
         "version": env!("CARGO_PKG_VERSION"),
         "instance": state.instance.name,

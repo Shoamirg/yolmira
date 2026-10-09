@@ -28,8 +28,9 @@ pub struct State {
     next_connection: AtomicU64,
     auth_failures: Mutex<HashMap<String, (Instant, u64)>>,
     pub sessions: super::sessions::Sessions,
-    /// Who this install acts for; stamped on every event that names no one else.
-    pub person: super::identity::Person,
+    /// Who this install acts for, and which install it is; stamped on every event
+    /// that names no one else.
+    pub identity: crate::identity::Identity,
     pub agent_jobs: super::peer::AgentJobs,
     pub policy: super::policy::Gate,
 }
@@ -40,7 +41,7 @@ impl State {
         instance: Instance,
         token: String,
         elevated: bool,
-        person: super::identity::Person,
+        identity: crate::identity::Identity,
     ) -> Self {
         let (events, _) = broadcast::channel(BROADCAST_CAPACITY);
         Self {
@@ -54,7 +55,7 @@ impl State {
             next_connection: AtomicU64::new(1),
             auth_failures: Mutex::new(HashMap::new()),
             sessions: super::sessions::Sessions::default(),
-            person,
+            identity,
             agent_jobs: super::peer::AgentJobs::default(),
             policy: super::policy::Gate::default(),
         }
@@ -63,7 +64,11 @@ impl State {
     pub fn record(&self, event: NewEvent) -> Result<Event, AmiriError> {
         let event = match event.person_id {
             Some(_) => event,
-            None => event.for_person(self.person.person_id.clone()),
+            None => event.for_person(self.identity.person.person_id.clone()),
+        };
+        let event = match event.install_id {
+            Some(_) => event,
+            None => event.from_install(self.identity.install.install_id.clone()),
         };
         let mut store = self.lock_store()?;
         let stored = store.append(event).map_err(store_error)?;

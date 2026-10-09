@@ -272,6 +272,7 @@ fn events_carry_person_and_agent_and_older_rows_have_none() {
         .append(
             NewEvent::new(kinds::SESSION_KILL_REQUESTED, actors::USER, json!({}))
                 .for_person("p-1")
+                .from_install("i-1")
                 .by_agent("a-1"),
         )
         .unwrap();
@@ -284,4 +285,6 @@ fn events_carry_person_and_agent_and_older_rows_have_none() {
         (all[1].person_id.as_deref(), all[1].agent_id.as_deref()),
         (Some("p-1"), Some("a-1"))
     );
+    assert_eq!(all[1].install_id.as_deref(), Some("i-1"));
+    assert_eq!(all[0].install_id, None);
 }

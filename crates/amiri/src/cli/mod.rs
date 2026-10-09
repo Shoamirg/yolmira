@@ -5,6 +5,7 @@ mod attach;
 mod commands;
 mod console;
 pub mod doctor;
+mod identity;
 mod output;
 mod project;
 mod shell;
@@ -60,6 +61,11 @@ pub enum Command {
         #[arg(long)]
         session: bool,
     },
+    /// Who this machine acts for (person) and which install it is.
+    Identity {
+        #[command(subcommand)]
+        action: IdentityAction,
+    },
     /// Registered projects: a name for a folder that shells can start in.
     Project {
         #[command(subcommand)]
@@ -107,6 +113,19 @@ pub enum ShellAction {
     Attach { id: String },
     /// End a session's shell.
     Kill { id: String },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum IdentityAction {
+    /// Show the person and install ids.
+    Show,
+    /// Act for the person in another machine's identity.toml (this install keeps its id).
+    Import {
+        file: PathBuf,
+        /// Replace a different person already set up here.
+        #[arg(long)]
+        replace: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

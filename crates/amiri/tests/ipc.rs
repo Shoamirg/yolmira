@@ -203,28 +203,38 @@ fn subscribers_receive_new_events() {
     });
 }
 
-/// Team mode needs no migration later (decisions.md 2026-10-09): every event names the
-/// person this install acts for, and that id survives restarts.
+/// Team mode needs no migration later (decisions.md 2026-10-09). Every event names
+/// the person it acts for and the install it came from; both survive a restart; a
+/// second machine that imports the person file acts for the same person with its
+/// own install id.
 #[test]
-fn events_name_the_person_and_it_is_stable() {
+fn events_name_person_and_install() {
+    let ids = |env: &TestEnv| {
+        let v = last_json(&env.amiri(&["identity", "show"]));
+        (
+            v["person_id"].as_str().expect("person_id").to_string(),
+            v["install_id"].as_str().expect("install_id").to_string(),
+        )
+    };
     let env = TestEnv::new();
     env.start();
-    let path = env.instance().config_dir().join("identity.toml");
-    let text = std::fs::read_to_string(&path).expect("identity.toml created on first start");
-    let id_line = text
-        .lines()
-        .find(|l| l.starts_with("person_id"))
-        .expect("person_id");
-    let person = id_line.split('"').nth(1).expect("quoted id").to_string();
+    let (person, install) = ids(&env);
+    assert_ne!(person, install);
     let _ = env.amiri(&["daemon", "stop"]);
     env.wait_until("daemon stopped", Duration::from_secs(10), || {
         env.running_pid().is_none()
     });
     env.start();
+    assert_eq!(
+        ids(&env),
+        (person.clone(), install.clone()),
+        "stable across restarts"
+    );
     let events = env.events();
     assert!(events.len() >= 5, "two runs' events: {events:?}");
     for e in &events {
         assert_eq!(e["person_id"], person.as_str(), "{e}");
+        assert_eq!(e["install_id"], install.as_str(), "{e}");
     }
     let started: Vec<_> = events
         .iter()
@@ -233,13 +243,37 @@ fn events_name_the_person_and_it_is_stable() {
     assert_eq!(started.len(), 2);
     assert!(started
         .iter()
-        .all(|e| e["payload"]["person_id"] == person.as_str()));
-    let stop_decision = events
+        .all(|e| e["payload"]["install_id"] == install.as_str()));
+    let stop = events
         .iter()
         .find(|e| e["kind"] == "policy.decision")
         .expect("daemon.stop's decision");
-    assert_eq!(
-        stop_decision["payload"]["requested_by_person"],
-        person.as_str()
+    assert_eq!(stop["payload"]["requested_by_person"], person.as_str());
+    assert_eq!(stop["payload"]["requested_by_install"], install.as_str());
+
+    // "Another machine": a second instance imports the first one's person file.
+    let other = TestEnv::new();
+    let file = env.instance().config_dir().join("identity.toml");
+    let imported = other.amiri(&["identity", "import", file.to_str().unwrap()]);
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stdout)
+    );
+    other.start();
+    let (other_person, other_install) = ids(&other);
+    assert_eq!(other_person, person, "the same person");
+    assert_ne!(other_install, install, "its own install");
+    assert!(other
+        .events()
+        .iter()
+        .all(|e| e["person_id"] == person.as_str() && e["install_id"] == other_install.as_str()));
+    // Importing someone else's file over an existing person needs --replace.
+    let third = TestEnv::new();
+    let _ = third.amiri(&["identity", "show"]); // creates a person of its own
+    let refused = third.amiri(&["identity", "import", file.to_str().unwrap()]);
+    assert!(
+        !refused.status.success(),
+        "a different person isn't replaced silently"
     );
 }

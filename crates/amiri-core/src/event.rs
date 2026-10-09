@@ -15,6 +15,9 @@ pub struct Event {
     /// only on events from before identity existed: the local person.
     #[serde(default)]
     pub person_id: Option<String>,
+    /// The machine/install it came from (a person may use several).
+    #[serde(default)]
+    pub install_id: Option<String>,
     /// The agent that did it, if an agent did.
     #[serde(default)]
     pub agent_id: Option<String>,
@@ -27,8 +30,9 @@ pub struct Event {
 pub struct NewEvent {
     pub kind: &'static str,
     pub actor: String,
-    /// Filled with the local person by the daemon when left `None`.
+    /// Filled with the local person and install by the daemon when left `None`.
     pub person_id: Option<String>,
+    pub install_id: Option<String>,
     pub agent_id: Option<String>,
     pub session_id: Option<String>,
     pub payload: Value,
@@ -40,6 +44,7 @@ impl NewEvent {
             kind,
             actor: actor.into(),
             person_id: None,
+            install_id: None,
             agent_id: None,
             session_id: None,
             payload,
@@ -49,6 +54,13 @@ impl NewEvent {
     pub fn for_person(self, person_id: impl Into<String>) -> Self {
         Self {
             person_id: Some(person_id.into()),
+            ..self
+        }
+    }
+
+    pub fn from_install(self, install_id: impl Into<String>) -> Self {
+        Self {
+            install_id: Some(install_id.into()),
             ..self
         }
     }
