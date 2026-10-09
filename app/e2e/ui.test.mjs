@@ -48,8 +48,8 @@ after(async () => {
 /** Open a cmd tab, set a variable in it, and return its id. */
 async function shellWithMark(ui) {
   const id = await ui.newCmd();
-  await ui.typeLine("set AMIRI_MARK=42");
-  await ui.typeLine("echo [%AMIRI_MARK%]");
+  await ui.typeLine("set YOLMIRA_MARK=42");
+  await ui.typeLine("echo [%YOLMIRA_MARK%]");
   await ui.waitLine(id, "[42]");
   assert.equal(await ui.countLine(id, "[42]"), 1);
   return id;
@@ -62,11 +62,11 @@ async function reattachAndCheck(instance, id) {
   await waitFor(`session ${id} listed RUNNING`, async () => (await ui.rows()).some((r) => r.id === id && r.status === "RUNNING"));
   await ui.attachRow(id);
   // The earlier output is visible again (replayed from the daemon's scrollback).
-  await waitFor("replayed earlier output", async () => (await ui.lines(id)).some((l) => l.endsWith("set AMIRI_MARK=42")));
+  await waitFor("replayed earlier output", async () => (await ui.lines(id)).some((l) => l.endsWith("set YOLMIRA_MARK=42")));
   // Replayed once: a second feed or a missed reset would show it twice.
-  assert.equal((await ui.lines(id)).filter((l) => l.endsWith("set AMIRI_MARK=42")).length, 1);
+  assert.equal((await ui.lines(id)).filter((l) => l.endsWith("set YOLMIRA_MARK=42")).length, 1);
   assert.equal(await ui.countLine(id, "[42]"), 1);
-  await ui.typeLine("echo (%AMIRI_MARK%)");
+  await ui.typeLine("echo (%YOLMIRA_MARK%)");
   await ui.waitLine(id, "(42)");
 }
 
@@ -201,7 +201,7 @@ e2e("output_flood_flows_through", async () => {
 });
 
 // Slice D: a kill waits for approval. The UI shows the request and its CLI code;
-// Deny keeps the shell, the code works for `amiri approve`, Allow once ends it.
+// Deny keeps the shell, the code works for `yolmira approve`, Allow once ends it.
 e2e("ui_approval_prompt", async () => {
   const instance = track(new Instance("approve"));
   instance.writePolicies('[global]\n"session.kill" = "ask"\n"daemon.stop" = "allow"\n');

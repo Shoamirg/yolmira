@@ -1,9 +1,9 @@
 # Phase 1 manual exit check: pipe-owner rejection (H1), phase1-plan §4.
 #
 # Run as a SECOND Windows account while the first user's daemon is stopped. Creates
-# \\.\pipe\amiri-<first user's SID> with an Everyone DACL, accepts every connection,
-# and logs how many bytes each client sent. The first user's `amiri daemon status` and
-# `amiri daemon start` must refuse this pipe: every connection logs 0 bytes (no token).
+# \\.\pipe\yolmira-<first user's SID> with an Everyone DACL, accepts every connection,
+# and logs how many bytes each client sent. The first user's `yolmira daemon status` and
+# `yolmira daemon start` must refuse this pipe: every connection logs 0 bytes (no token).
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\Public\impostor-pipe.ps1 -Sid S-1-5-21-...
 #
@@ -12,10 +12,10 @@ param(
     [Parameter(Mandatory = $true)][string]$Sid,
     [string]$Suffix = '',
     [int]$Minutes = 15,
-    [string]$Log = 'C:\Users\Public\amiri-impostor.log'
+    [string]$Log = 'C:\Users\Public\yolmira-impostor.log'
 )
 $ErrorActionPreference = 'Stop'
-$name = "amiri-$Sid$Suffix"
+$name = "yolmira-$Sid$Suffix"
 
 function Write-Log([string]$line) {
     $stamped = "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $line

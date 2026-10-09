@@ -13,7 +13,7 @@ Each test has its own daemon instance (`--instance`/`--home`), its own UI proces
 
 | Plan test | Result |
 |---|---|
-| `ui_close_reopen_shell_survives` | pass. Window closed with `WM_CLOSE`; daemon pid unchanged, shell RUNNING; relaunch + attach: the earlier `set AMIRI_MARK=42` line is replayed **exactly once**, and `echo (%AMIRI_MARK%)` gives `(42)` |
+| `ui_close_reopen_shell_survives` | pass. Window closed with `WM_CLOSE`; daemon pid unchanged, shell RUNNING; relaunch + attach: the earlier `set YOLMIRA_MARK=42` line is replayed **exactly once**, and `echo (%YOLMIRA_MARK%)` gives `(42)` |
 | `ui_killed_shell_survives` | pass. Same after `taskkill /F` of the UI (without `/T`: the daemon is not the UI's child anyway) |
 | `ui_started_from_closed_terminal` | pass. UI started from a new PowerShell console; the console is killed; the UI stays alive (polled for 3 s), the daemon it started keeps its pid, and the shell still answers |
 | `two_uis_same_session` | pass. Input typed in either window shows in both, once each |
@@ -22,7 +22,7 @@ Each test has its own daemon instance (`--instance`/`--home`), its own UI proces
 
 ## Findings
 
-1. **Each WebView2 instance needs its own data folder to get its own debugging port.** Two UIs sharing the default folder share one browser process, so the second `--remote-debugging-port` is ignored. Debug builds read `AMIRI_UI_WEBVIEW_DATA` for this; release builds don't (below).
+1. **Each WebView2 instance needs its own data folder to get its own debugging port.** Two UIs sharing the default folder share one browser process, so the second `--remote-debugging-port` is ignored. Debug builds read `YOLMIRA_UI_WEBVIEW_DATA` for this; release builds don't (below).
 2. **WebView2 takes configuration from `WEBVIEW2_*` environment variables**: browser arguments (`--remote-debugging-port`, unauthenticated: anyone on the machine could drive the session commands through it), the browser executable folder, the user-data folder. The E2E harness depends on that in debug builds. Release builds now remove every `WEBVIEW2_*` variable (any case) first thing in `main`, before the webview or any other thread exists.
 3. **The daemon already copes with a slow attachment** (`session_handlers.rs`: a lagging attachment gets a reset plus a scrollback snapshot, at most 2 MiB). So the UI can simply stop reading a feed: each output event carries a credit; the feed task waits on a 1 MiB semaphore; the frontend returns credit (`session_ack`) from xterm's `write` callback. Without this, a flood queued events in the webview without bound, and xterm drops data past ~50 MB with only a console warning.
 4. **Attach replay arrives before the pane has its real size** when a tab is reattached in the background (hidden panes aren't fitted), so cursor-addressed output in the replay is laid out at 120x30 and then reflowed. Not fixed (see "Open").
@@ -71,7 +71,7 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
    | output_flood_flows_through | ok, 15.73 s | ok, 15.58 s |
    | Whole run | 6/6, 36.8 s | 6/6, 36.3 s |
 
-   Every page reported `document.visibilityState = visible` off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default (`6685a08`); `AMIRI_E2E_ONSCREEN=1` shows the windows. The console window of `ui_started_from_closed_terminal` still appears briefly.
+   Every page reported `document.visibilityState = visible` off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default (`6685a08`); `YOLMIRA_E2E_ONSCREEN=1` shows the windows. The console window of `ui_started_from_closed_terminal` still appears briefly.
 4. **WebView2 updated itself** (154.0.4258.53 → .62) between runs; the harness stopped with the planned message, and the matching driver was pinned (`7419ae6`: zip SHA-256 recorded, signature Valid, O=Microsoft Corporation).
 5. **CI did not run** for `53f7739` (run 37928451747): GitHub refused to start the job over the account's billing ("recent account payments have failed or your spending limit needs to be increased"). Not a code failure; rerun once billing is fixed.
 6. **Which Slice C runs could have used stale binaries** (the npm `ignore-scripts` bug above). `app/.npmrc` existed from the first Slice C commit (`54f0dde`), so no `npm run e2e` in Slice C rebuilt anything. The UI binary is what changed in Slice C; the daemon and CLI were current throughout (Slice C didn't touch `crates/`, and `scripts/test.ps1` rebuilt them).
@@ -98,7 +98,7 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
 - Security LOWs: test that xterm's automatic replies (DA/DSR/DECRQSS, `CSI 21 t`) can't echo attacker-controlled text into an (eventually elevated) shell; cap simultaneous feeds; `style-src 'unsafe-inline'` stays (xterm and React inline styles); add non-blocking `npm audit` / `cargo audit` steps to CI.
 - No "connecting" state while the first `ensure_daemon` runs (up to 10 s): the banner shows "disconnected" meanwhile.
 - `supervise` and the feeds are never cancelled; fine while the app exits with its last window, revisit if a tray icon keeps it alive.
-- `scripts/test.ps1` now prints durations, but two binaries are both named `amiri` (the lib's and the bin's unit tests).
+- `scripts/test.ps1` now prints durations, but two binaries are both named `yolmira` (the lib's and the bin's unit tests).
 
 ## CI
 

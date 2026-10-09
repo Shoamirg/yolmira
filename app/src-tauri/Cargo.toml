@@ -1,18 +1,18 @@
 [package]
-name = "amiri-app"
+name = "yolmira-app"
 version = "0.1.0"
-description = "AMIRI desktop UI: a Tauri 2 client of the amirid daemon. It never owns the daemon."
+description = "Yolmira desktop UI: a Tauri 2 client of the yolmirad daemon. It never owns the daemon."
 edition = "2021"
 rust-version = "1.94"
 publish = false
 
 # Its own workspace, so `cargo test --workspace` at the root doesn't need the built
-# frontend. It shares the root `target/` (see .cargo/config.toml), so amiri-app.exe
-# sits next to amirid.exe, which it starts through ensure_daemon().
+# frontend. It shares the root `target/` (see .cargo/config.toml), so yolmira-app.exe
+# sits next to yolmirad.exe, which it starts through ensure_daemon().
 [workspace]
 
 [[bin]]
-name = "amiri-app"
+name = "yolmira-app"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -20,8 +20,8 @@ tauri-build = { version = "=2.6.3", features = [] }
 tauri-codegen = "=2.6.3"
 
 [dependencies]
-amiri-core = { path = "../../crates/amiri-core" }
-amiri-ipc = { path = "../../crates/amiri-ipc" }
+yolmira-core = { path = "../../crates/yolmira-core" }
+yolmira-ipc = { path = "../../crates/yolmira-ipc" }
 tauri = { version = "=2.11.6", features = [] }
 # tauri 2.11.6 asks for its sub-crates with caret requirements, so a fresh resolve
 # picks the 2.12 ones it doesn't compile with. Hold them at the 2.11.6 release set.

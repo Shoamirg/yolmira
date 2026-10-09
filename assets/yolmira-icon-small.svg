@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Transparent canvas background -->
+  <rect width="32" height="32" fill="transparent" />
+  
+  <!-- Single Gold Border -->
+  <rect x="1" y="1" width="30" height="30" rx="6" fill="#D4AF37" />
+  
+  <!-- Deep Cobalt Blue Background -->
+  <rect x="3" y="3" width="26" height="26" rx="4" fill="#1434A4" />
+  
+  <!-- Turquoise Caravan Path (Curving bottom-left to top-right) -->
+  <path d="M 6 26 C 10 20 16 20 25 9" fill="none" stroke="#2DD4BF" stroke-width="4" stroke-linecap="round" />
+  
+  <!-- Caravan Nodes (Enlarged for small-scale legibility) -->
+  <!-- Rear Node -->
+  <circle cx="8" cy="23" r="3.5" fill="#FBBF24" />
+  <circle cx="8" cy="23" r="1.5" fill="#FFFBEB" />
+  
+  <!-- Middle Node -->
+  <circle cx="15.5" cy="17.5" r="4.5" fill="#FBBF24" />
+  <circle cx="15.5" cy="17.5" r="2" fill="#FFFBEB" />
+  
+  <!-- Lead Node -->
+  <circle cx="24" cy="10" r="5.5" fill="#FBBF24" />
+  <circle cx="24" cy="10" r="2.5" fill="#FFFBEB" />
+</svg>

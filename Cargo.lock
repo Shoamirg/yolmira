@@ -12,76 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amiri"
-version = "0.1.0"
-dependencies = [
- "amiri-core",
- "amiri-exec",
- "amiri-ipc",
- "amiri-store",
- "base64",
- "clap",
- "portable-pty",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "windows-sys",
-]
-
-[[package]]
-name = "amiri-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "amiri-exec"
-version = "0.1.0"
-dependencies = [
- "amiri-ipc",
- "portable-pty",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "amiri-ipc"
-version = "0.1.0"
-dependencies = [
- "amiri-core",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
- "windows-sys",
-]
-
-[[package]]
-name = "amiri-store"
-version = "0.1.0"
-dependencies = [
- "amiri-core",
- "rusqlite",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "uuid",
-]
-
-[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1186,6 +1116,76 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "yolmira"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "clap",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "windows-sys",
+ "yolmira-core",
+ "yolmira-exec",
+ "yolmira-ipc",
+ "yolmira-store",
+]
+
+[[package]]
+name = "yolmira-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "yolmira-exec"
+version = "0.1.0"
+dependencies = [
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+ "yolmira-ipc",
+]
+
+[[package]]
+name = "yolmira-ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windows-sys",
+ "yolmira-core",
+]
+
+[[package]]
+name = "yolmira-store"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+ "yolmira-core",
 ]
 
 [[package]]

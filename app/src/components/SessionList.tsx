@@ -31,9 +31,9 @@ export function SessionList() {
   return (
     <aside className="sidebar">
       <header className="sidebar-head">
-        <span className="wordmark">amiri</span>
+        <span className="wordmark">yolmira</span>
         <span className="daemon-chip" data-connected={daemon.connected}>
-          {daemon.connected ? `amirid ${daemon.version ?? ""} · pid ${daemon.pid ?? "?"}` : "offline"}
+          {daemon.connected ? `yolmirad ${daemon.version ?? ""} · pid ${daemon.pid ?? "?"}` : "offline"}
         </span>
       </header>
 

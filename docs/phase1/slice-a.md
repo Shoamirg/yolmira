@@ -9,19 +9,19 @@
 
 | Plan test | Where | Result |
 |---|---|---|
-| `daemon_survives_launcher_job_close` | `crates/amiri/tests/lifecycle.rs` | pass. Launcher in a kill-on-close job that allows breakaway; the job is closed and the daemon still answers 5 s later |
-| `restrictive_job_reports_manual_start` | lifecycle | pass. Job forbids breakaway: launcher exits 1 with an actionable error (`why` + manual `amirid …` command), no daemon starts |
+| `daemon_survives_launcher_job_close` | `crates/yolmira/tests/lifecycle.rs` | pass. Launcher in a kill-on-close job that allows breakaway; the job is closed and the daemon still answers 5 s later |
+| `restrictive_job_reports_manual_start` | lifecycle | pass. Job forbids breakaway: launcher exits 1 with an actionable error (`why` + manual `yolmirad …` command), no daemon starts |
 | `daemon_survives_launcher_console_close` | lifecycle | pass. Launched inside a ConPTY that is then closed |
 | `second_start_connects_to_existing` | lifecycle | pass |
-| `concurrent_start_single_daemon` | lifecycle | pass. 8 parallel starts give one pid and one `started`; a second `amirid` exits 4 (already running) |
+| `concurrent_start_single_daemon` | lifecycle | pass. 8 parallel starts give one pid and one `started`; a second `yolmirad` exits 4 (already running) |
 | `ctrl_c_handling_s1d` | lifecycle | pass. Foreground daemon in a ConPTY survives Ctrl+C and keeps answering; console close gives exit 0 and `daemon.stopped {reason: console_close}` |
-| `pipe_dacl_is_current_user_only` | `crates/amiri/tests/ipc.rs` | pass. Read back from the live pipe: protected DACL, one allow ACE for the user's SID, label `(ML;;NWNR;;;ME)` |
+| `pipe_dacl_is_current_user_only` | `crates/yolmira/tests/ipc.rs` | pass. Read back from the live pipe: protected DACL, one allow ACE for the user's SID, label `(ML;;NWNR;;;ME)` |
 | `ipc_rejects_missing_or_wrong_token` | ipc | pass. Wrong token and "no hello first" both get `unauthorized` and are recorded |
-| `child_env_is_allowlisted` | `amiri-ipc` `win::env` unit tests | pass at unit level: a canary variable doesn't reach the child environment; PATH comes from the registry; `SystemRoot`/`windir`/`ComSpec` come from Windows. **The daemon-level check (a real shell sees neither) moves to Slice B**, which is the first slice that starts shells |
-| `elevation_check` | `amiri` unit test | pass: the decision function. Real elevated runs happen only on CI, never locally |
+| `child_env_is_allowlisted` | `yolmira-ipc` `win::env` unit tests | pass at unit level: a canary variable doesn't reach the child environment; PATH comes from the registry; `SystemRoot`/`windir`/`ComSpec` come from Windows. **The daemon-level check (a real shell sees neither) moves to Slice B**, which is the first slice that starts shells |
+| `elevation_check` | `yolmira` unit test | pass: the decision function. Real elevated runs happen only on CI, never locally |
 | `events_persist_across_restart` | ipc | pass |
-| `migrations_apply_and_backup`, `projection_rebuild_matches_live` | `amiri-store` unit tests | pass. The backup is the pre-migration database (version 1, no `sessions` table) |
-| Added after review | ipc: `overlong_hello_is_cut_off`, `failed_auth_events_are_rate_limited`, `subscribers_receive_new_events`; store: literal `_`/`%` in kind filters; `amiri-ipc`: bounded framing, private-file ACL on replace, client-name rules; CLI: control characters never reach the terminal | pass |
+| `migrations_apply_and_backup`, `projection_rebuild_matches_live` | `yolmira-store` unit tests | pass. The backup is the pre-migration database (version 1, no `sessions` table) |
+| Added after review | ipc: `overlong_hello_is_cut_off`, `failed_auth_events_are_rate_limited`, `subscribers_receive_new_events`; store: literal `_`/`%` in kind filters; `yolmira-ipc`: bounded framing, private-file ACL on replace, client-name rules; CLI: control characters never reach the terminal | pass |
 
 ## Findings
 
@@ -30,7 +30,7 @@
    - **Development:** `cargo run -- daemon start` and, in Slice C, `tauri dev` hit the same refusal. In development the daemon is started first from a normal terminal (the error says how). Product behaviour is unchanged (decisions.md, "Phase 1 plan": no WMI escape).
 2. **ConPTY's cursor-position request (S1 finding 5) stalls anything run in a pseudoconsole** until someone answers it. The test harness answers it; Slice B's PTY layer must too.
 3. **This machine's registry has no `ComSpec` in the machine environment** (like PowerShell missing from PATH, S0). The child environment falls back to `<Windows>\System32\cmd.exe`.
-4. **Package layout:** `amirid` and `amiri` ship from one package (`crates/amiri`) because cargo exposes built binaries only to their own package's integration tests. Recorded in ARCHITECTURE §4.2.
+4. **Package layout:** `yolmirad` and `yolmira` ship from one package (`crates/yolmira`) because cargo exposes built binaries only to their own package's integration tests. Recorded in ARCHITECTURE §4.2.
 
 ## Review findings and what was done
 
@@ -58,7 +58,7 @@
 
 - **The runner's own job object forbids breakaway** (first CI run, `36137606194`, failed on this): every step runs inside it, so no test process on CI can detach a daemon. Decision (2026-09-25, user): CI runs everything it can; nothing escapes any job.
   - Test daemons start through the detaching launcher when possible, otherwise directly inside the job.
-  - The 4 detach tests (`daemon_survives_launcher_job_close`, `daemon_survives_launcher_console_close`, `second_start_connects_to_existing`, `concurrent_start_single_daemon`) run **locally only**. On CI the workflow sets `AMIRI_CI_NO_BREAKAWAY=1`; they then print `NOT RUN ON CI` (written past the test harness's output capture) and `scripts/test.ps1` lists them. libtest still counts them as passed, which is why the explicit list exists. Without the flag, a restrictive job fails them.
+  - The 4 detach tests (`daemon_survives_launcher_job_close`, `daemon_survives_launcher_console_close`, `second_start_connects_to_existing`, `concurrent_start_single_daemon`) run **locally only**. On CI the workflow sets `YOLMIRA_CI_NO_BREAKAWAY=1`; they then print `NOT RUN ON CI` (written past the test harness's output capture) and `scripts/test.ps1` lists them. libtest still counts them as passed, which is why the explicit list exists. Without the flag, a restrictive job fails them.
   - `restrictive_job_reports_manual_start` does run on CI (it tests the refusal).
 - **SDDL renders well-known SIDs as aliases.** On the runner the user is the local Administrator, shown as `LA` instead of `S-1-5-…`, and Windows stores `GA` as `FA` on file objects. The owner-only SDDL now uses `FA`, and tests compare ACEs after Windows' own rendering (`SecurityDescriptor::to_sddl`, `sddl_aces`).
 - The runner is elevated, so CI exercises `--allow-elevated` and the High-labelled pipe and token file; locally everything runs at Medium.

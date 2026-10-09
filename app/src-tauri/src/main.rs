@@ -1,4 +1,4 @@
-//! AMIRI desktop UI: a client of `amirid` (phase1-plan Slice C). It starts the daemon
+//! Yolmira desktop UI: a client of `yolmirad` (phase1-plan Slice C). It starts the daemon
 //! if needed, through the same `ensure_daemon()` as the CLI, and never stops it, so
 //! shells outlive the window.
 
@@ -11,22 +11,22 @@ mod daemon;
 mod errors;
 mod lifecycle;
 
-use amiri_core::AmiriError;
-use amiri_ipc::Instance;
 use daemon::Daemon;
 use lifecycle::RunMarker;
 use std::sync::Arc;
 use tauri::webview::NewWindowResponse;
 use tauri::{RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
+use yolmira_core::YolmiraError;
+use yolmira_ipc::Instance;
 
 /// Tests give each UI its own WebView2 data folder, so two windows get two browser
 /// processes (and two debugging ports). Read only by debug builds.
 #[cfg(debug_assertions)]
-const WEBVIEW_DATA_ENV: &str = "AMIRI_UI_WEBVIEW_DATA";
+const WEBVIEW_DATA_ENV: &str = "YOLMIRA_UI_WEBVIEW_DATA";
 /// Tests can place the window ("x,y", e.g. beyond every monitor so test windows
 /// don't pop up on a person's desktop). Read only by debug builds.
 #[cfg(debug_assertions)]
-const WINDOW_POSITION_ENV: &str = "AMIRI_UI_WINDOW_POSITION";
+const WINDOW_POSITION_ENV: &str = "YOLMIRA_UI_WINDOW_POSITION";
 
 #[cfg(debug_assertions)]
 fn window_position() -> Option<(f64, f64)> {
@@ -60,9 +60,9 @@ fn drop_webview2_overrides() {
 /// `npm run tauri dev` serves the frontend here (tauri.conf.json `devUrl`).
 const DEV_ORIGIN: (&str, u16) = ("127.0.0.1", 5173);
 
-fn resolve_instance() -> Result<Instance, AmiriError> {
+fn resolve_instance() -> Result<Instance, YolmiraError> {
     let fail = |why: String| {
-        AmiriError::new("Start the AMIRI UI", "ui", why)
+        YolmiraError::new("Start the Yolmira UI", "ui", why)
             .next_step("Run it without arguments, or with --instance <name> --home <folder>.")
     };
     let a = args::parse(std::env::args().skip(1)).map_err(fail)?;
@@ -72,14 +72,14 @@ fn resolve_instance() -> Result<Instance, AmiriError> {
 /// Daily log files in the instance's log folder, next to the daemon's. Written
 /// without a buffer: Tauri ends the process from its event loop, so a buffered
 /// writer would lose the last lines, which say why the UI exited (lifecycle.rs).
-fn init_logging(instance: &Result<Instance, AmiriError>) {
+fn init_logging(instance: &Result<Instance, YolmiraError>) {
     let Some(dir) = instance.as_ref().ok().map(Instance::log_dir) else {
         return;
     };
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
-    let filter = tracing_subscriber::EnvFilter::try_from_env("AMIRI_LOG")
+    let filter = tracing_subscriber::EnvFilter::try_from_env("YOLMIRA_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let result = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -93,7 +93,7 @@ fn init_logging(instance: &Result<Instance, AmiriError>) {
 }
 
 /// Mark this UI as running (and report earlier ones that ended unrecorded).
-fn run_marker(instance: &Result<Instance, AmiriError>) -> RunMarker {
+fn run_marker(instance: &Result<Instance, YolmiraError>) -> RunMarker {
     let dir = instance
         .as_ref()
         .ok()
@@ -114,11 +114,11 @@ fn is_app_url(url: &Url) -> bool {
 }
 
 /// A GUI program has no console: show a fatal error where the user sees it.
-fn fatal(e: &AmiriError) {
+fn fatal(e: &YolmiraError) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
     let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
     let text = wide(&e.to_string());
-    let title = wide("AMIRI");
+    let title = wide("Yolmira");
     // SAFETY: both pointers are NUL-terminated UTF-16 buffers that outlive the call.
     unsafe {
         MessageBoxW(
@@ -183,7 +183,7 @@ fn main() {
         .setup(move |app| {
             let window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("AMIRI")
+                    .title("Yolmira")
                     .inner_size(1240.0, 780.0)
                     .min_inner_size(720.0, 420.0)
                     .on_navigation(is_app_url)
@@ -210,9 +210,9 @@ fn main() {
     let app = match result {
         Ok(app) => app,
         Err(e) => {
-            let err = AmiriError::new("Run the AMIRI UI", "ui", e.to_string())
+            let err = YolmiraError::new("Run the Yolmira UI", "ui", e.to_string())
                 .next_step("Check that the Microsoft Edge WebView2 Runtime is installed.")
-                .next_step("Run `amiri doctor`.");
+                .next_step("Run `yolmira doctor`.");
             tracing::error!("{err}");
             lifecycle::set_exit_reason(format!("failed to start: {}", err.why));
             marker.exiting("failed to start");
@@ -251,7 +251,7 @@ mod tests {
         ));
         assert!(is_webview2_override("webview2_browser_executable_folder"));
         assert!(!is_webview2_override("WEBVIEW2"));
-        assert!(!is_webview2_override("AMIRI_UI_WEBVIEW_DATA"));
+        assert!(!is_webview2_override("YOLMIRA_UI_WEBVIEW_DATA"));
         assert!(!is_webview2_override("Ж")); // non-ASCII: no slicing panic
     }
 }

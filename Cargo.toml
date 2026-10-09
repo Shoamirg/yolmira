@@ -11,10 +11,10 @@ publish = false
 
 # Versions pinned in docs/dependencies.md; Cargo.lock is committed.
 [workspace.dependencies]
-amiri-core = { path = "crates/amiri-core" }
-amiri-store = { path = "crates/amiri-store" }
-amiri-ipc = { path = "crates/amiri-ipc" }
-amiri-exec = { path = "crates/amiri-exec" }
+yolmira-core = { path = "crates/yolmira-core" }
+yolmira-store = { path = "crates/yolmira-store" }
+yolmira-ipc = { path = "crates/yolmira-ipc" }
+yolmira-exec = { path = "crates/yolmira-exec" }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",

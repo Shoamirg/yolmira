@@ -1,9 +1,9 @@
 {
-  "name": "amiri-app",
+  "name": "yolmira-app",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "AMIRI desktop UI (Tauri 2 + React). Versions pinned in docs/phase1-plan.md \u00a75.",
+  "description": "Yolmira desktop UI (Tauri 2 + React). Versions pinned in docs/phase1-plan.md \u00a75.",
   "engines": {
     "node": ">=22.18"
   },
@@ -14,7 +14,7 @@
     "test": "node --test test/*.test.ts",
     "tauri": "tauri",
     "build:app": "tauri build --debug --no-bundle",
-    "e2e": "npm run build:app && cargo build --locked --manifest-path ../Cargo.toml -p amiri && npm run e2e:only",
+    "e2e": "npm run build:app && cargo build --locked --manifest-path ../Cargo.toml -p yolmira && npm run e2e:only",
     "e2e:only": "node --test --test-concurrency=1 --test-timeout=600000 e2e/*.test.mjs"
   },
   "dependencies": {

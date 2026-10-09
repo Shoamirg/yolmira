@@ -1,4 +1,4 @@
-# Phase 1, Slice D: policy engine, project registry, `amiri doctor` (findings)
+# Phase 1, Slice D: policy engine, project registry, `yolmira doctor` (findings)
 
 - Dates: 2026-10-05 to 2026-10-09. Plan: `docs/phase1-plan.md` §1 Slice D, plus the reviewer's additions of 2026-10-05 and 2026-10-09 (`docs/decisions.md`).
 - Code: `c48a77c` (policy core) … `b0f1cbb` (project picker), all pushed. Main commits: `53f7739` projects store, `76590d9` process peer helpers, `0050eda` policy gate + approvals, `74a4a7d` method coverage test, `8521e76`/`7c46152` identity, `8e23295` approval panel, `b6e90c7` doctor v1, `b0f1cbb` project picker.
@@ -12,34 +12,34 @@
 
 | Plan test | Where | Result |
 |---|---|---|
-| `policy_table` (unit) | `crates/amiri-core/src/policy/tests.rs` | pass, 16 tests: built-in defaults, unknown → ASK, project over global, exact over wildcard, longest wildcard, a project can't loosen a global DENY but may tighten, `system.*` never ALLOW (an ALLOW becomes ASK; DENY stays), destructive git ASK under a wildcard ALLOW unless an exact per-action rule, invalid files rejected with a reason, whole-segment matching |
-| `ask_round_trip` | `crates/amiri/tests/policy.rs` | pass. A kill blocks in ASK on its own connection; the UI (a test client the daemon trusts in debug builds) allows it, it runs; a second one is denied, the caller gets `POLICY_DENIED` and the shell keeps running. Events in order: `policy.ask` → `policy.answered` → `policy.decision` → `session.kill_requested` |
-| `every_mutating_method_emits_event` | `crates/amiri/tests/methods.rs` | pass. Walks the protocol `METHODS` table: every mutating method is called and must record its declared event; `session.input` must carry its unlogged reason; every read method is served; a mutating method without a recipe fails the test |
-| `doctor_detects_faults` | `crates/amiri/tests/doctor.rs` + `crates/amiri/src/cli/doctor/tests.rs` | pass. Real: a shell left RUNNING by a daemon killed with `taskkill /F` (`sessions_stale` warn), a corrupted database copy (`database` fail, exit 1), a fake agent CLI outside its tested range (`agent_fake` warn); doctor changes nothing (no daemon start). Injected: `EnableLUA=0` (`uac` fail), corrupt/unreadable DB, impostor pipe, no WebView2, running elevated. Every problem has a why and next steps |
-| `project_shell_starts_in_repo` | `crates/amiri/tests/policy.rs`; E2E `project_picker` | pass. Shell cwd is the registered folder `…\Проект oʻzbek`; an unknown project is an error with a next step. In the UI: register the folder, pick it, `cd` prints it |
+| `policy_table` (unit) | `crates/yolmira-core/src/policy/tests.rs` | pass, 16 tests: built-in defaults, unknown → ASK, project over global, exact over wildcard, longest wildcard, a project can't loosen a global DENY but may tighten, `system.*` never ALLOW (an ALLOW becomes ASK; DENY stays), destructive git ASK under a wildcard ALLOW unless an exact per-action rule, invalid files rejected with a reason, whole-segment matching |
+| `ask_round_trip` | `crates/yolmira/tests/policy.rs` | pass. A kill blocks in ASK on its own connection; the UI (a test client the daemon trusts in debug builds) allows it, it runs; a second one is denied, the caller gets `POLICY_DENIED` and the shell keeps running. Events in order: `policy.ask` → `policy.answered` → `policy.decision` → `session.kill_requested` |
+| `every_mutating_method_emits_event` | `crates/yolmira/tests/methods.rs` | pass. Walks the protocol `METHODS` table: every mutating method is called and must record its declared event; `session.input` must carry its unlogged reason; every read method is served; a mutating method without a recipe fails the test |
+| `doctor_detects_faults` | `crates/yolmira/tests/doctor.rs` + `crates/yolmira/src/cli/doctor/tests.rs` | pass. Real: a shell left RUNNING by a daemon killed with `taskkill /F` (`sessions_stale` warn), a corrupted database copy (`database` fail, exit 1), a fake agent CLI outside its tested range (`agent_fake` warn); doctor changes nothing (no daemon start). Injected: `EnableLUA=0` (`uac` fail), corrupt/unreadable DB, impostor pipe, no WebView2, running elevated. Every problem has a why and next steps |
+| `project_shell_starts_in_repo` | `crates/yolmira/tests/policy.rs`; E2E `project_picker` | pass. Shell cwd is the registered folder `…\Проект oʻzbek`; an unknown project is an error with a next step. In the UI: register the folder, pick it, `cd` prints it |
 | Added (reviewer, 2026-10-09) | `policy.rs`: `cli_approval_needs_the_code`, `agent_job_process_cannot_approve`, `only_the_ui_gets_codes` | pass. See "Approvals and agents" |
 | Added | `ipc.rs`: `events_name_person_and_install`; identity unit tests | pass. Both ids stable across a daemon restart; a second instance that imports the person file has the same `person_id` and its own `install_id` |
-| Added | E2E `ui_approval_prompt` | pass. Deny in the panel keeps the shell; the panel's code works for `amiri approve`; Allow once ends it; answers logged with `via` ui/code/ui |
+| Added | E2E `ui_approval_prompt` | pass. Deny in the panel keeps the shell; the panel's code works for `yolmira approve`; Allow once ends it; answers logged with `via` ui/code/ui |
 
 ## What was built
 
-- **Policy gate** (`crates/amiri/src/daemon/policy.rs`). `session.create`, `session.kill`, `daemon.stop`, `project.register`, `project.remove` are checked. `policies.toml` (`%APPDATA%\AMIRI`, a named instance's own `config\`) is read on every check; a file that doesn't parse makes everything ASK. Defaults: kill and stop ASK (the reviewer's kill confirmation), the rest ALLOW. ASK holds the request until `policy.answer` (once, or until the daemon stops) or 600 s (= deny). Every verdict is a `policy.decision` event.
-- **Projects**: `amiri project add|list|remove`, `amiri shell new --project`, `project.*` methods, a projection rebuilt from `project.registered/removed`; sessions record their project, and its rules apply to them.
-- **Identity** (decisions.md 2026-10-09, team mode): `person_id` (per person, `identity.toml`, importable on another machine with `amiri identity import`), `install_id` (per machine, automatic, local folder), `agent_id` (from Phase 2) on every event and approval. Migrations 4 and 5.
-- **`amiri doctor` v1**: daemon (+ impostor pipe), pipe ACL, database (read-only: integrity, schema, pending migration), stale sessions, elevation, UAC, agent CLIs (data: built-in `agents.toml` with `claude` tested 2.1.281 and `codex` informational, extended by the user's `agents.toml`), PowerShell, WebView2.
+- **Policy gate** (`crates/yolmira/src/daemon/policy.rs`). `session.create`, `session.kill`, `daemon.stop`, `project.register`, `project.remove` are checked. `policies.toml` (`%APPDATA%\Yolmira`, a named instance's own `config\`) is read on every check; a file that doesn't parse makes everything ASK. Defaults: kill and stop ASK (the reviewer's kill confirmation), the rest ALLOW. ASK holds the request until `policy.answer` (once, or until the daemon stops) or 600 s (= deny). Every verdict is a `policy.decision` event.
+- **Projects**: `yolmira project add|list|remove`, `yolmira shell new --project`, `project.*` methods, a projection rebuilt from `project.registered/removed`; sessions record their project, and its rules apply to them.
+- **Identity** (decisions.md 2026-10-09, team mode): `person_id` (per person, `identity.toml`, importable on another machine with `yolmira identity import`), `install_id` (per machine, automatic, local folder), `agent_id` (from Phase 2) on every event and approval. Migrations 4 and 5.
+- **`yolmira doctor` v1**: daemon (+ impostor pipe), pipe ACL, database (read-only: integrity, schema, pending migration), stale sessions, elevation, UAC, agent CLIs (data: built-in `agents.toml` with `claude` tested 2.1.281 and `codex` informational, extended by the user's `agents.toml`), PowerShell, WebView2.
 - **UI**: approval panel (Allow once / until the daemon stops / Deny, the CLI code shown), project picker; gated calls use their own connection so a pending approval never blocks typing.
 
 ## Approvals and agents (reviewer, 2026-10-09)
 
 Agents will run as the user, with a shell, and can read the pipe token. So the token alone must not let a process approve:
 
-- **(a) Not from an agent job.** The daemon identifies each connection's client process (`GetNamedPipeClientProcessId`; the process handle is held from connect, so a reused pid can't stand in). `policy.answer` and `policy.code` from any process inside an AMIRI agent job (kill-on-close, no breakaway, ARCHITECTURE §9.6) are refused and logged as `policy.answer_refused {reason: agent_job, pid, image}`. An unidentifiable process counts as inside.
-- **(b) A one-time code shown only in the UI.** Each request gets 8 random digits. Only the genuine UI (`amiri-app.exe` beside `amirid.exe`, outside agent jobs) can read it (`policy.code`) or answer without it; any other client needs it. It is never written to an event. Three wrong codes deny the request.
-- **Test of the reviewer's case:** a process the daemon starts inside a real agent job runs `amiri approve <id> --code <the right code>`: refused, logged with its pid, the request still waits (`agent_job_process_cannot_approve`).
+- **(a) Not from an agent job.** The daemon identifies each connection's client process (`GetNamedPipeClientProcessId`; the process handle is held from connect, so a reused pid can't stand in). `policy.answer` and `policy.code` from any process inside an Yolmira agent job (kill-on-close, no breakaway, ARCHITECTURE §9.6) are refused and logged as `policy.answer_refused {reason: agent_job, pid, image}`. An unidentifiable process counts as inside.
+- **(b) A one-time code shown only in the UI.** Each request gets 8 random digits. Only the genuine UI (`yolmira-app.exe` beside `yolmirad.exe`, outside agent jobs) can read it (`policy.code`) or answer without it; any other client needs it. It is never written to an event. Three wrong codes deny the request.
+- **Test of the reviewer's case:** a process the daemon starts inside a real agent job runs `yolmira approve <id> --code <the right code>`: refused, logged with its pid, the request still waits (`agent_job_process_cannot_approve`).
 - **Residual risks:**
   - **R14** (ARCHITECTURE §16.4): any same-user process can drive the UI (send input, read window text), so an agent could read the code or click Allow without escaping its job. Candidate fix: agents at low integrity (UIPI; the pipe rejects them); spike **S7** at the start of Phase 2, since Claude Code may not work at low integrity.
   - An agent that escapes its job (e.g. WMI process creation) passes (a); it still needs the code that only the UI shows (and R14 then applies).
-  - Approving needs the AMIRI window: the CLI alone can't approve without its code. Intended, but `amiri daemon stop` (ASK by default) now needs the window open.
+  - Approving needs the Yolmira window: the CLI alone can't approve without its code. Intended, but `yolmira daemon stop` (ASK by default) now needs the window open.
 
 ## Config files agents could edit (reviewer, 2026-10-09)
 
@@ -50,7 +50,7 @@ Agents run as the user and can edit `policies.toml` and `agents.toml`, which wou
 - **Tightening applies at once** (logged, then confirmed with reason "an edit that only tightens").
 - **Loosening waits for a person.** Compared by behaviour, not text: every action the rules can reach (known actions, every pattern either version names, a representative action under each wildcard), globally and in every project either names; any decision that gets less strict is a loosening. For `agents.toml`: a dropped agent, a wider or removed tested range, a changed command, a warning demoted. The edit opens a confirmation in the approval machinery: the UI shows the file, what it loosens and the diff, with the one-time code; agent-job processes can't answer; three wrong codes decline it. Until confirmed, each decision is the stricter of the confirmed and the edited rules, so the edit's tightening parts still apply. A declined text isn't asked again while the file keeps it.
 - **Fails closed:** an edit that doesn't parse applies the confirmed policy with at least ASK everywhere; for `agents.toml`, the confirmed list.
-- **`amiri doctor`** uses the confirmed agent list and reports unconfirmed edits (`config_policies`, `config_agents`).
+- **`yolmira doctor`** uses the confirmed agent list and reports unconfirmed edits (`config_policies`, `config_agents`).
 - **Tests:** `agent_edit_allowing_daemon_stop_still_asks` (a process in an agent job overwrites policies.toml to allow `daemon.stop`: the edit is logged with its diff and not applied, stopping still asks, the agent can't confirm its own edit even with the right code, a person's confirmation applies it); `tightening_edit_applies_at_once`; E2E `config_edit_needs_confirmation` (the window shows the diff; a kill still asks until the edit is confirmed); unit tests for the comparison, the diff, both files' rules.
 - **Residual:** a same-user process could also edit the event log (the database) and so the confirmed text. Agents at low integrity (S7, R14) can write neither file nor database.
 
@@ -67,15 +67,15 @@ Agents run as the user and can edit `policies.toml` and `agents.toml`, which wou
 
 - **Approval scope "this session"** is "until the daemon stops" (Phase 1 has no tasks or agent sessions to scope to).
 - **Debug-only test hooks** (release builds have neither): the trusted test UI file (`config\debug-trusted-ui.txt`) and `debug.spawn_in_agent_job` (not in the `METHODS` table, so the method-coverage test doesn't see it).
-- **`amiri approve`** needs the code shown in the UI (reviewer's requirement (b)); the plan's "interactive prompt in the CLI" asks for that code.
-- **Elevation** is read from the token's elevation flag (`TokenElevation`): locale-neutral like a SID check, and what `amirid` itself uses.
+- **`yolmira approve`** needs the code shown in the UI (reviewer's requirement (b)); the plan's "interactive prompt in the CLI" asks for that code.
+- **Elevation** is read from the token's elevation flag (`TokenElevation`): locale-neutral like a SID check, and what `yolmirad` itself uses.
 - **Doctor's agent list** is data (`agents.toml`), as the reviewer asked; Gemini/Qwen stay out (their proposal is undecided).
 
 ## Open
 
 - **CI green on the latest commit** (billing; not a rerun of the old run on `53f7739`), then Slice D acceptance. After acceptance: the Phase 1 exit checks (decisions.md 2026-10-09) before anything else.
 - A request whose client disconnects isn't cancelled: it waits until answered or the 600 s limit. Harmless (the decision is logged), but the panel shows it meanwhile.
-- `amiri doctor` doesn't yet report identity (person/install) or `policies.toml` validity; the daemon reports an invalid file by asking for everything.
+- `yolmira doctor` doesn't yet report identity (person/install) or `policies.toml` validity; the daemon reports an invalid file by asking for everything.
 - The UI doesn't show who (person/agent) asked; Phase 1 has one person and no agents.
 - Low-integrity agents (S7, R14) at the start of Phase 2.
 - Kill confirmation lives in the policy (`session.kill` ASK by default); a UI-only dialog wasn't added.

@@ -1,5 +1,6 @@
 target/
 node_modules/
 # Probe output contains local paths; attach to reviews deliberately, don't commit.
+yolmira-env.json
 amiri-env.json
 __pycache__/

@@ -1,7 +1,7 @@
 # Phase 1 plan: Windows shell (daemon, terminal, UI)
 
 Status: **approved 2026-09-25** with the changes in §6.
-Scope source: ARCHITECTURE §16.2 Phase 1. Exit criteria: *PTY integration suite green; UI closes and reopens while a local shell keeps running under `amirid`; the event log shows all actions.*
+Scope source: ARCHITECTURE §16.2 Phase 1. Exit criteria: *PTY integration suite green; UI closes and reopens while a local shell keeps running under `yolmirad`; the event log shows all actions.*
 
 ## 1. Slices
 
@@ -11,35 +11,35 @@ Four vertical slices, in order. Each ends in a working, tested, committed state.
 
 Builds:
 - **Workspace skeleton** with only the crates Phase 1 needs:
-  - `amiri-core`: action types, policy types, no I/O;
-  - `amiri-store`: SQLite, migrations, the `events` table and a `sessions` projection (a subset of §7.2);
-  - `amiri-ipc`: protocol types;
-  - `amirid`;
-  - `amiri-cli`.
+  - `yolmira-core`: action types, policy types, no I/O;
+  - `yolmira-store`: SQLite, migrations, the `events` table and a `sessions` projection (a subset of §7.2);
+  - `yolmira-ipc`: protocol types;
+  - `yolmirad`;
+  - `yolmira-cli`.
 
   Other crates from §4.2 are added in the phase that needs them.
-- **`amirid` lifecycle** (§2 below): detached start, single instance, S1d Ctrl+C handling, elevation refusal, allowlisted child environment.
-- **IPC:** newline-delimited JSON-RPC 2.0 over `\\.\pipe\amiri-<user SID>`.
+- **`yolmirad` lifecycle** (§2 below): detached start, single instance, S1d Ctrl+C handling, elevation refusal, allowlisted child environment.
+- **IPC:** newline-delimited JSON-RPC 2.0 over `\\.\pipe\yolmira-<user SID>`.
   - The pipe has a DACL granting only the current user, and rejects remote clients (`PIPE_REJECT_REMOTE_CLIENTS`). The daemon creates it with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so no other process can squat the name.
-  - The first message must carry the per-boot token from `%LOCALAPPDATA%\AMIRI\run\token`, which has a user-only ACL.
+  - The first message must carry the per-boot token from `%LOCALAPPDATA%\Yolmira\run\token`, which has a user-only ACL.
   - A protocol version is exchanged in the handshake.
   - Requests and responses, plus subscriptions (event stream, PTY output).
 - **Event log:** every state change is an event appended in the same transaction as its projection update. The DB uses WAL mode, and embedded numbered migrations run with a backup first.
-- **CLI:** `amiri daemon start|stop|status`, `amiri events [--follow] [--kind …]`.
+- **CLI:** `yolmira daemon start|stop|status`, `yolmira events [--follow] [--kind …]`.
 
-Exit tests (`crates/amirid/tests/lifecycle.rs`, `crates/amiri-store/tests/`):
+Exit tests (`crates/yolmirad/tests/lifecycle.rs`, `crates/yolmira-store/tests/`):
 
 | Test | Proves |
 |---|---|
 | `daemon_survives_launcher_job_close` | The launcher runs inside a kill-on-close job that **allows breakaway** (like the jobs terminals and IDEs use), starts the daemon, and then the job is closed. The daemon is still reachable 5 s later. |
 | `restrictive_job_reports_manual_start` | The launcher runs inside a job that **forbids breakaway**: `ensure_daemon()` starts nothing and returns the manual-start error, with a non-empty `why` and `next_steps`. |
 | `daemon_survives_launcher_console_close` | Launched from a ConPTY that is then closed, as in the S1 method: the daemon survives. |
-| `second_start_connects_to_existing` | `amiri daemon start` twice gives one daemon PID. The second call reports "already running" and exits 0. |
+| `second_start_connects_to_existing` | `yolmira daemon start` twice gives one daemon PID. The second call reports "already running" and exits 0. |
 | `concurrent_start_single_daemon` | 8 parallel `ensure_daemon()` calls produce exactly one daemon. The losers connect to it. |
 | `pipe_dacl_is_current_user_only` | Reads back the pipe's security descriptor: exactly one allow ACE, for the current SID, and remote clients rejected. (We can't create a second Windows user without admin, so the ACL is checked by inspection.) |
 | `ipc_rejects_missing_or_wrong_token` | Connection closed, and a `ipc.auth_failed` event recorded. |
 | `ctrl_c_handling_s1d` | S1d's three checks ported: a child shell gets Ctrl+C; the daemon survives Ctrl+C in its own console (`--foreground`); console close shuts it down cleanly with exit 0. |
-| `child_env_is_allowlisted` | The daemon starts with canary `AMIRI_TEST_SECRET=…` and a junk PATH entry. A child shell sees neither, and its PATH equals the registry PATH. |
+| `child_env_is_allowlisted` | The daemon starts with canary `YOLMIRA_TEST_SECRET=…` and a junk PATH entry. A child shell sees neither, and its PATH equals the registry PATH. |
 | `elevation_check` | The decision function refuses an elevated token without `--allow-elevated` (token facts injected), and accepts the real Medium token. Nothing runs elevated. |
 | `events_persist_across_restart` | Events written, daemon stopped and restarted: the same events come back in the same `seq` order. |
 | `migrations_apply_and_backup`, `projection_rebuild_matches_live` | §15 Store rows. |
@@ -47,16 +47,16 @@ Exit tests (`crates/amirid/tests/lifecycle.rs`, `crates/amiri-store/tests/`):
 ### Slice B: terminal sessions from the CLI
 
 Builds:
-- **`amiri-exec`:** local ConPTY through `portable-pty` 0.9.0 (S1).
+- **`yolmira-exec`:** local ConPTY through `portable-pty` 0.9.0 (S1).
   - Session kinds: `cmd`, `powershell` (5.1 by full path; S0 found it missing from PATH), `pwsh` if installed, `wsl` (`wsl.exe -d <distro>`).
   - Each session has a daemon-side scrollback ring (default 2 MiB, raw bytes) that is replayed on attach, so a client that reconnects rebuilds the screen.
   - The daemon answers ConPTY's DSR (`ESC[6n`) itself when no client is attached (S1 finding 5).
   - Several clients may view one shell; input from any of them goes to the PTY in arrival order. (The one-writer lock of D2 is for agent sessions, which come in Phase 2.)
-- **CLI:** `amiri shell new --kind … [--cwd …]`, `amiri shell list`, `amiri shell attach <id>` (raw-mode terminal; a detach key detaches without killing), `amiri shell kill <id>`.
+- **CLI:** `yolmira shell new --kind … [--cwd …]`, `yolmira shell list`, `yolmira shell attach <id>` (raw-mode terminal; a detach key detaches without killing), `yolmira shell kill <id>`.
 - **Events:** `session.created`, `session.attached`/`detached`, `session.resized`, `session.exited {code}`. Keystrokes are **not** logged, since they may contain secrets. Session output is not stored in the log either; the scrollback is memory only.
 - **Reconciliation:** on daemon start, sessions recorded as RUNNING become `UNKNOWN`, then `EXITED (daemon restart)` (D3: local shells die with the daemon, S1).
 
-Exit tests (`crates/amiri-exec/tests/pty.rs`, `crates/amirid/tests/sessions.rs`). Together they form the **PTY integration suite** (§15):
+Exit tests (`crates/yolmira-exec/tests/pty.rs`, `crates/yolmirad/tests/sessions.rs`). Together they form the **PTY integration suite** (§15):
 
 | Test | Notes |
 |---|---|
@@ -71,13 +71,13 @@ Exit tests (`crates/amiri-exec/tests/pty.rs`, `crates/amirid/tests/sessions.rs`)
 | `session_survives_client_disconnect` | Client sets a shell variable, disconnects (killed, not a clean detach), a new client attaches: the variable is intact and the scrollback is replayed. |
 | `daemon_restart_reconciles_sessions` | RUNNING → UNKNOWN → EXITED, with events. |
 | `wsl_shutdown_while_attached` | `wsl --shutdown` during a WSL session: the session goes to EXITED and the daemon stays up (R7). Touches only a throwaway distro, never the user's. |
-| `soak_1h_output_flood` | Gated by `AMIRI_SOAK=1`. Run once before the phase exit: no memory growth beyond the ring, no stall, no lost exit status (R7). |
+| `soak_1h_output_flood` | Gated by `YOLMIRA_SOAK=1`. Run once before the phase exit: no memory growth beyond the ring, no stall, no lost exit status (R7). |
 
 ### Slice C: the Tauri UI attaches to sessions
 
 Builds:
 - **`app/`:** Tauri 2 + React + TypeScript + Vite, with `@xterm/xterm` and the fit addon.
-  - The Tauri Rust side is an IPC client of `amirid`. The webview talks only to Tauri commands and events, with no shell or filesystem plugins (§6.5).
+  - The Tauri Rust side is an IPC client of `yolmirad`. The webview talks only to Tauri commands and events, with no shell or filesystem plugins (§6.5).
   - The UI **never owns the daemon.** At start it calls the same `ensure_daemon()` as the CLI, and it never kills the daemon when it closes.
   - Screens: session list, terminal tabs (new, attach, detach, kill), and a daemon-disconnected banner with automatic reconnect.
   - No component library (§5.2).
@@ -86,23 +86,23 @@ Exit tests (`app/e2e/`, WebDriver through WebView2's `msedgedriver`; not `tauri-
 
 | Test | Proves |
 |---|---|
-| `ui_close_reopen_shell_survives` | **The main exit criterion.** Launch the UI, open a `cmd` tab, `set AMIRI_MARK=42`, close the window normally. Relaunch the UI and attach: `echo %AMIRI_MARK%` gives `42`, and the earlier output is visible (replayed). |
+| `ui_close_reopen_shell_survives` | **The main exit criterion.** Launch the UI, open a `cmd` tab, `set YOLMIRA_MARK=42`, close the window normally. Relaunch the UI and attach: `echo %YOLMIRA_MARK%` gives `42`, and the earlier output is visible (replayed). |
 | `ui_killed_shell_survives` | Same, but the UI process is killed (`taskkill /F`). |
 | `ui_started_from_closed_terminal` | Start the UI from a console, close the console: the UI's shells keep working (covers the daemon's launch path through the UI). |
 | `two_uis_same_session` | Two windows attached to one shell both see output. |
 | `daemon_down_banner_and_reconnect` | Kill the daemon: the banner shows, sessions show UNKNOWN (never RUNNING), and after restart the UI reconnects. |
 
-### Slice D: policy engine, project registry, `amiri doctor`
+### Slice D: policy engine, project registry, `yolmira doctor`
 
 Builds:
 - **Minimal policy engine (§6.3):**
   - Typed actions for what Phase 1 does: `session.create`, `session.kill`, `daemon.stop`, `project.register`, `project.remove`.
   - **System-level changes are always ASK** (reviewer, 2026-09-25, after the ComSpec/PATH repair was run elevated with only the UAC click as a check): `system.elevate` (starting anything elevated) and `system.env.write` / `system.registry.write`. The prompt shows the exact commands before any UAC dialog appears; a narrower rule can't loosen it to ALLOW.
-  - Rules in `%APPDATA%\AMIRI\policies.toml` (TOML, decisions Q4); scopes resolve project → global. Unknown actions → ASK.
-  - ASK blocks the request until a client answers: a prompt in the UI, `amiri approve <id>` or an interactive prompt in the CLI. Approval scope is once or this session.
+  - Rules in `%APPDATA%\Yolmira\policies.toml` (TOML, decisions Q4); scopes resolve project → global. Unknown actions → ASK.
+  - ASK blocks the request until a client answers: a prompt in the UI, `yolmira approve <id>` or an interactive prompt in the CLI. Approval scope is once or this session.
   - Every decision is a `policy.decision` event. The destructive git classifications are in the table already (tested), even though git arrives in Phase 8.
-- **Project registry and selection:** `amiri project add <name> <path>`, `list`, `remove`, and choosing a project so that new shells start in its folder. The UI gets a project picker.
-- **`amiri doctor` v1** (table output, `--json`):
+- **Project registry and selection:** `yolmira project add <name> <path>`, `list`, `remove`, and choosing a project so that new shells start in its folder. The UI gets a project picker.
+- **`yolmira doctor` v1** (table output, `--json`):
   - daemon reachable and its version;
   - pipe ACL;
   - DB `integrity_check` and migration level;
@@ -124,27 +124,27 @@ Exit tests:
 
 ## 2. Daemon lifecycle
 
-- **Who starts it:** whichever client comes first, CLI or UI, through one shared `ensure_daemon()` in `amiri-ipc`. It connects to the pipe; if nothing answers, it takes a named start lock, checks again, and launches `amirid`. Then it waits up to 10 s for the pipe and reports a §14-shaped error if the daemon doesn't come up.
+- **Who starts it:** whichever client comes first, CLI or UI, through one shared `ensure_daemon()` in `yolmira-ipc`. It connects to the pipe; if nothing answers, it takes a named start lock, checks again, and launches `yolmirad`. Then it waits up to 10 s for the pipe and reports a §14-shaped error if the daemon doesn't come up.
 - **Detached:**
-  - `CreateProcessW` with `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB`, stdio to null, cwd `%LOCALAPPDATA%\AMIRI`, and the allowlisted environment (§9.6).
+  - `CreateProcessW` with `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB`, stdio to null, cwd `%LOCALAPPDATA%\Yolmira`, and the allowlisted environment (§9.6).
   - The daemon is not a child of the UI's console and not in the UI's job.
-  - If the launcher's job forbids breakaway, `CreateProcessW` fails with access denied. AMIRI then **does not** try another way out of the job: starting processes through WMI to escape a job is a known malware technique that security tools flag, and it would worsen R12. `ensure_daemon()` returns a §14-shaped error, and the CLI and UI show it: the daemon can't be started from inside this restricted environment, plus the command to start it from a new terminal opened from the Start menu. This case is rare: launching from the Start menu or Explorer doesn't put the UI in a restrictive job. If it turns out to matter, the installer (Phase 10) adds a per-user on-demand scheduled task that starts the daemon.
-- **Single instance per Windows user:** a named mutex `Local\AMIRI-amirid-<SID>`, held for the daemon's lifetime, plus the pipe's `FILE_FLAG_FIRST_PIPE_INSTANCE`. A second `amirid` exits with a distinct exit code. Several logon sessions of the same user (RDP plus console) share the pipe name, and the pipe flag still keeps it to one daemon. Tested in slice A.
-- **Ctrl+C from the first commit (S1d):** clear the inherited ignore flag (`SetConsoleCtrlHandler(NULL, FALSE)`) and install AMIRI's handler (ignore Ctrl+C and Ctrl+Break, clean shutdown on close, logoff and shutdown). A detached daemon has no console, so the handler only fires in `--foreground` dev mode. The flag clearing matters in both modes, because children inherit it.
+  - If the launcher's job forbids breakaway, `CreateProcessW` fails with access denied. Yolmira then **does not** try another way out of the job: starting processes through WMI to escape a job is a known malware technique that security tools flag, and it would worsen R12. `ensure_daemon()` returns a §14-shaped error, and the CLI and UI show it: the daemon can't be started from inside this restricted environment, plus the command to start it from a new terminal opened from the Start menu. This case is rare: launching from the Start menu or Explorer doesn't put the UI in a restrictive job. If it turns out to matter, the installer (Phase 10) adds a per-user on-demand scheduled task that starts the daemon.
+- **Single instance per Windows user:** a named mutex `Local\Yolmira-yolmirad-<SID>`, held for the daemon's lifetime, plus the pipe's `FILE_FLAG_FIRST_PIPE_INSTANCE`. A second `yolmirad` exits with a distinct exit code. Several logon sessions of the same user (RDP plus console) share the pipe name, and the pipe flag still keeps it to one daemon. Tested in slice A.
+- **Ctrl+C from the first commit (S1d):** clear the inherited ignore flag (`SetConsoleCtrlHandler(NULL, FALSE)`) and install Yolmira's handler (ignore Ctrl+C and Ctrl+Break, clean shutdown on close, logoff and shutdown). A detached daemon has no console, so the handler only fires in `--foreground` dev mode. The flag clearing matters in both modes, because children inherit it.
 - **Logoff and shutdown when detached:** without a console, Windows sends no console control events. The daemon creates a hidden top-level window to receive `WM_QUERYENDSESSION`/`WM_ENDSESSION`, and shuts down cleanly (flush the log, mark sessions). `[UNVERIFIED; a manual check at the phase exit (log off and on, and the event log shows a clean shutdown). An automated logoff test would need a second account.]`
 - **Elevation:** refuses to start elevated without `--allow-elevated` (§6.5).
-- **Stopping:** `amiri daemon stop` asks for policy approval, since it kills every shell, then shuts down cleanly. The daemon keeps running when the last client disconnects; that's the point. Starting at logon is not in Phase 1.
+- **Stopping:** `yolmira daemon stop` asks for policy approval, since it kills every shell, then shuts down cleanly. The daemon keeps running when the last client disconnects; that's the point. Starting at logon is not in Phase 1.
 
 ## 3. Not in Phase 1
 
-Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); AMIRI's MCP server; SSH and remote machines; WSL as an execution *transport* (WSL appears only as a terminal kind); Obsidian and knowledge; skills; git integration; the task state machine and orchestrator; Compute; Credential Manager or any secret storage (Phase 1 has no secrets); `amiri-sessiond`; starting at logon; the installer, packaging and code signing (R12); UI polish or a component library; `cargo deny`/`audit` gates (Phase 9; run once manually at the phase exit and report the result).
+Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); Yolmira's MCP server; SSH and remote machines; WSL as an execution *transport* (WSL appears only as a terminal kind); Obsidian and knowledge; skills; git integration; the task state machine and orchestrator; Compute; Credential Manager or any secret storage (Phase 1 has no secrets); `yolmira-sessiond`; starting at logon; the installer, packaging and code signing (R12); UI polish or a component library; `cargo deny`/`audit` gates (Phase 9; run once manually at the phase exit and report the result).
 
 ## 4. Exit criteria → automated tests
 
 | §16.2 exit criterion | Test(s) |
 |---|---|
-| PTY integration suite green | Slice B table, including the soak run (`AMIRI_SOAK=1`, once) |
-| UI closes and reopens while a local shell keeps running under `amirid` | `ui_close_reopen_shell_survives`, `ui_killed_shell_survives`, `ui_started_from_closed_terminal`; underneath them `daemon_survives_launcher_job_close` and `session_survives_client_disconnect` |
+| PTY integration suite green | Slice B table, including the soak run (`YOLMIRA_SOAK=1`, once) |
+| UI closes and reopens while a local shell keeps running under `yolmirad` | `ui_close_reopen_shell_survives`, `ui_killed_shell_survives`, `ui_started_from_closed_terminal`; underneath them `daemon_survives_launcher_job_close` and `session_survives_client_disconnect` |
 | The event log shows all actions | `every_mutating_method_emits_event`, `ask_round_trip`, `events_persist_across_restart` |
 | (§15) locale as a permanent test dimension | See below |
 
@@ -154,7 +154,7 @@ Agents (Claude or Codex adapters, handoff packets, the failover of §8.4); AMIRI
 - **uz-UZ:** a Phase 1 gap, recorded in the phase findings and not claimed. Covered in Phase 10's Windows Sandbox clean-install test.
 
 **Manual checks at the phase exit** (no automated test possible on one account; results recorded in the Phase 1 findings):
-1. **Pipe-owner rejection (H1)** with a second Windows account (the same one serves the uz-UZ check). While the first user's daemon is stopped, the second account creates `\\.\pipe\amiri-<first user's SID>` (a small PowerShell `NamedPipeServerStream` with an Everyone DACL). The first user runs `amiri daemon status` and `amiri daemon start`. Expected: both fail with "the daemon's pipe is owned by another process", **no token is sent** (the second account's server logs no bytes received), and no second daemon starts.
+1. **Pipe-owner rejection (H1)** with a second Windows account (the same one serves the uz-UZ check). While the first user's daemon is stopped, the second account creates `\\.\pipe\yolmira-<first user's SID>` (a small PowerShell `NamedPipeServerStream` with an Everyone DACL). The first user runs `yolmira daemon status` and `yolmira daemon start`. Expected: both fail with "the daemon's pipe is owned by another process", **no token is sent** (the second account's server logs no bytes received), and no second daemon starts.
 2. **Logoff/shutdown when detached:** start the daemon, sign out, sign back in. Expected: the event log shows `daemon.stopped {reason: session_end}`.
 3. **Detach tests** (`daemon_survives_launcher_*`, `second_start_*`, `concurrent_start_*`): not run on CI (the runner's job forbids breakaway); the local `scripts/test.ps1` run on the exit commit covers them.
 

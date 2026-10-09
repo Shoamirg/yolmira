@@ -10,27 +10,27 @@
 
 | Plan test | Where | Result |
 |---|---|---|
-| `echo_round_trip_{cmd,powershell}` | `crates/amiri/tests/pty.rs` | pass. Markers the shell computes (`AMIRI_%OS%`, `6*7`) |
+| `echo_round_trip_{cmd,powershell}` | `crates/yolmira/tests/pty.rs` | pass. Markers the shell computes (`YOLMIRA_%OS%`, `6*7`) |
 | `ansi_color_semantics` | pty | pass. The foreground attribute before the marker is parsed and must be red (ConPTY re-encodes: 31/91/38;5;1/38;5;9/RGB) |
 | `resize_reported_by_child` | pty | pass. `[Console]::WindowWidth/Height` = 100x30 after `session.resize` |
 | `ctrl_c_interrupts_ping` | pty | pass. Also exercises the S1d flag clearing: the daemon was started with `CREATE_NEW_PROCESS_GROUP`, and its shells still get Ctrl+C |
 | `exit_codes` | pty | pass. `exit 7` → notification, event and `shell list` all show 7 |
 | `dsr_answered_without_client` | pty | pass. A shell created with nobody attached is usable 3 s later |
-| `wsl_session` | pty | pass on this machine (default distro, `echo AMIRI_$((6*7))`). Not run where no distro is registered (read from `HKCU\…\Lxss`, locale-neutral) |
+| `wsl_session` | pty | pass on this machine (default distro, `echo YOLMIRA_$((6*7))`). Not run where no distro is registered (read from `HKCU\…\Lxss`, locale-neutral) |
 | `pwsh_session` | pty | **not run**: PowerShell 7 isn't installed (R7 stays open for `pwsh`) |
 | `oem_codepage_output_decoded` | pty | pass. `echo Привет_%OS%` in cmd (OEM 866 on this machine) arrives as UTF-8 |
 | `non_ascii_paths` → `non_ascii_cwd` | pty | pass. Working folder `…\Проект oʻzbek` |
-| `soak_1h_output_flood` | pty | **not run** by default (`AMIRI_SOAK=<seconds>`; 3600 at the phase exit, once) |
-| `session_survives_client_disconnect` | `crates/amiri/tests/sessions.rs` | pass. Killed client, reattach: variable intact, scrollback replayed |
+| `soak_1h_output_flood` | pty | **not run** by default (`YOLMIRA_SOAK=<seconds>`; 3600 at the phase exit, once) |
+| `session_survives_client_disconnect` | `crates/yolmira/tests/sessions.rs` | pass. Killed client, reattach: variable intact, scrollback replayed |
 | `daemon_restart_reconciles_sessions` | sessions | pass. Daemon killed (`taskkill /F`); on restart RUNNING → `session.unknown` → `session.exited {reason: daemon_restart}`; never shown RUNNING |
-| `wsl_shutdown_while_attached` | sessions | **not run**: `wsl --shutdown` would stop the user's distros too; the test only terminates a throwaway distro named in `AMIRI_TEST_WSL_DISTRO` (plan deviation, below) |
-| `child_env_is_allowlisted` (daemon level, moved from Slice A) | sessions | pass. The launcher's environment carries `AMIRI_TEST_SECRET` and a junk PATH entry; a real cmd in the daemon sees neither |
-| Added | sessions: `attach_after_more_output_than_one_frame` (>1 MiB replay), `attach_and_detach_are_recorded_without_keystrokes`, `clean_stop_records_session_exits`, `exited_sessions_reject_input_and_attach`, `cli_attach_round_trip` (the real `amiri shell attach` inside a pseudoconsole: type, see output, Ctrl+] → exit 0, shell still RUNNING); unit tests for the DSR filter, detach detection, cwd/distro validation, elevated pwsh lookup | pass |
+| `wsl_shutdown_while_attached` | sessions | **not run**: `wsl --shutdown` would stop the user's distros too; the test only terminates a throwaway distro named in `YOLMIRA_TEST_WSL_DISTRO` (plan deviation, below) |
+| `child_env_is_allowlisted` (daemon level, moved from Slice A) | sessions | pass. The launcher's environment carries `YOLMIRA_TEST_SECRET` and a junk PATH entry; a real cmd in the daemon sees neither |
+| Added | sessions: `attach_after_more_output_than_one_frame` (>1 MiB replay), `attach_and_detach_are_recorded_without_keystrokes`, `clean_stop_records_session_exits`, `exited_sessions_reject_input_and_attach`, `cli_attach_round_trip` (the real `yolmira shell attach` inside a pseudoconsole: type, see output, Ctrl+] → exit 0, shell still RUNNING); unit tests for the DSR filter, detach detection, cwd/distro validation, elevated pwsh lookup | pass |
 
 ## Findings
 
 1. **ConPTY's startup cursor request is its own handshake, not the application's.** ConPTY answers applications' cursor queries internally; the `ESC[6n` it emits at startup is for the terminal. Early design had "the daemon answers when nobody is attached, clients answer otherwise", which raced (double answers become keystrokes) and stalled when a client was slow to answer. Final design: the PTY layer always answers and strips it (including when split across reads). Clients never see it.
-2. **ConPTY asks the outer terminal for win32-input-mode** (`ESC[?9001h`, also focus events `?1004h`). Passed through by `amiri shell attach`, it switches Windows Terminal (or any ConPTY host) to encoding every key as `ESC[vk;sc;uc;kd;cs;rc_`. Consequences: the detach key is recognised in both encodings, and the CLI resets these modes (and alt screen, bracketed paste, mouse, cursor/keypad, scroll region, charset) when it exits, on every path.
+2. **ConPTY asks the outer terminal for win32-input-mode** (`ESC[?9001h`, also focus events `?1004h`). Passed through by `yolmira shell attach`, it switches Windows Terminal (or any ConPTY host) to encoding every key as `ESC[vk;sc;uc;kd;cs;rc_`. Consequences: the detach key is recognised in both encodings, and the CLI resets these modes (and alt screen, bracketed paste, mouse, cursor/keypad, scroll region, charset) when it exits, on every path.
 3. **ConPTY's output doesn't reach EOF when the shell exits**, only when the pseudoconsole closes. The watcher closes it and waits for the reader to drain before reporting the exit, so the last lines of output aren't lost.
 4. **Test flakiness found and fixed:** under parallel load `ping` sometimes started after the test's fixed 2.5 s wait, so Ctrl+C went to cmd instead. The test now waits until ping replies are visible (the address digits are locale-neutral). One earlier stress run showed three PTY failures of which only this one's message was captured; the 10 runs after the fix were clean.
 
@@ -56,7 +56,7 @@
 
 ## Plan deviations
 
-- `wsl_shutdown_while_attached` uses `wsl --terminate <throwaway distro>`, never `wsl --shutdown` (which would stop the user's running distros, including `docker-desktop`), and runs only when `AMIRI_TEST_WSL_DISTRO` names one.
+- `wsl_shutdown_while_attached` uses `wsl --terminate <throwaway distro>`, never `wsl --shutdown` (which would stop the user's running distros, including `docker-desktop`), and runs only when `YOLMIRA_TEST_WSL_DISTRO` names one.
 - Detach records `reason: "disconnect"` rather than `"detach"` (the CLI drops its output connection instead of sending `session.detach`). Accepted for Phase 1.
 
 ## Open

@@ -1,9 +1,9 @@
-// The webview's only channel to AMIRI: Tauri commands and events (ARCHITECTURE §6.5).
-// Shapes mirror crates/amiri-ipc/src/protocol.rs and app/src-tauri/src/daemon.rs.
+// The webview's only channel to Yolmira: Tauri commands and events (ARCHITECTURE §6.5).
+// Shapes mirror crates/yolmira-ipc/src/protocol.rs and app/src-tauri/src/daemon.rs.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type AmiriError = {
+export type YolmiraError = {
   what: string;
   where: string;
   why: string;
@@ -16,7 +16,7 @@ export type DaemonState = {
   pid: number | null;
   version: string | null;
   instance: string | null;
-  error: AmiriError | null;
+  error: YolmiraError | null;
 };
 
 export type SessionStatus = "RUNNING" | "EXITED" | "UNKNOWN";
@@ -106,8 +106,8 @@ export async function subscribe(h: Handlers): Promise<UnlistenFn> {
   return () => offs.forEach((off) => off());
 }
 
-/** Commands reject with an AmiriError; anything else is wrapped into one. */
-export function asAmiriError(e: unknown, what: string): AmiriError {
-  if (e && typeof e === "object" && "why" in e && "what" in e) return e as AmiriError;
-  return { what, where: "ui", why: String(e), attempted: [], next_steps: ["Run `amiri doctor`."] };
+/** Commands reject with an YolmiraError; anything else is wrapped into one. */
+export function asYolmiraError(e: unknown, what: string): YolmiraError {
+  if (e && typeof e === "object" && "why" in e && "what" in e) return e as YolmiraError;
+  return { what, where: "ui", why: String(e), attempted: [], next_steps: ["Run `yolmira doctor`."] };
 }

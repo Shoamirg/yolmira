@@ -14,7 +14,7 @@ function describe(a: PendingAsk): string {
     case "session.create":
       return `Start a ${String((d.shell as Record<string, unknown> | undefined)?.kind ?? "")} shell${d.project ? ` in project ${String(d.project)}` : ""}`;
     case "daemon.stop":
-      return `Stop the AMIRI daemon (ends ${String(d.running_shells ?? "every")} running shell(s))`;
+      return `Stop the Yolmira daemon (ends ${String(d.running_shells ?? "every")} running shell(s))`;
     case "project.register":
       return `Register project ${String(d.name)} at ${String(d.path)}`;
     case "project.remove":
@@ -30,7 +30,7 @@ function describe(a: PendingAsk): string {
 /**
  * Requests the policy holds until someone answers (ARCHITECTURE §6.3). Only this
  * window can answer without a code; the code shown lets a person approve from the
- * CLI (`amiri approve <id> --code <code>`). Agents can do neither (decisions.md
+ * CLI (`yolmira approve <id> --code <code>`). Agents can do neither (decisions.md
  * 2026-10-09).
  */
 export function ApprovalPanel() {

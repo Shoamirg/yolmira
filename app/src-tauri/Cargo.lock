@@ -33,52 +33,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amiri-app"
-version = "0.1.0"
-dependencies = [
- "amiri-core",
- "amiri-ipc",
- "base64 0.23.1",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-codegen",
- "tauri-macros",
- "tauri-runtime",
- "tauri-runtime-wry",
- "tauri-utils",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "amiri-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "toml 1.1.6+spec-1.1.0",
-]
-
-[[package]]
-name = "amiri-ipc"
-version = "0.1.0"
-dependencies = [
- "amiri-core",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4629,6 +4583,52 @@ dependencies = [
  "quote",
  "syn 3.0.6",
  "synstructure",
+]
+
+[[package]]
+name = "yolmira-app"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-codegen",
+ "tauri-macros",
+ "tauri-runtime",
+ "tauri-runtime-wry",
+ "tauri-utils",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "windows-sys 0.61.2",
+ "yolmira-core",
+ "yolmira-ipc",
+]
+
+[[package]]
+name = "yolmira-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "yolmira-ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windows-sys 0.61.2",
+ "yolmira-core",
 ]
 
 [[package]]

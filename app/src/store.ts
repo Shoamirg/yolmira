@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import {
   api,
-  asAmiriError,
-  type AmiriError,
+  asYolmiraError,
+  type YolmiraError,
   type DaemonState,
   type FeedClosed,
   type PendingAsk,
@@ -28,7 +28,7 @@ type Store = {
   snapshot: Snapshot | null;
   tabs: Tab[];
   active: string | null;
-  error: AmiriError | null;
+  error: YolmiraError | null;
   /** Requests waiting for an answer, and their CLI codes (fetched per request). */
   asks: PendingAsk[];
   askCodes: Record<string, string>;
@@ -197,7 +197,7 @@ export const useStore = create<Store>((set, get) => {
     },
 
     startDaemon: async () => {
-      await api.daemonStart().catch(fail("Start the AMIRI daemon"));
+      await api.daemonStart().catch(fail("Start the Yolmira daemon"));
     },
 
     setActive: (id) => set({ active: id }),
@@ -273,7 +273,7 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshAsks();
     },
 
-    showError: (e, what) => set({ error: asAmiriError(e, what) }),
+    showError: (e, what) => set({ error: asYolmiraError(e, what) }),
     dismissError: () => set({ error: null }),
   };
 });

@@ -1,4 +1,4 @@
-//! The UI's link to `amirid`.
+//! The UI's link to `yolmirad`.
 //!
 //! - One **monitor** connection follows the event stream. When it breaks, the daemon
 //!   is gone: the UI shows the banner and every session as UNKNOWN until it reconnects.
@@ -6,7 +6,7 @@
 //!   that fails mid-way (timeout, I/O, a reply out of step) leaves the connection in an
 //!   unknown state, so it is dropped and the supervisor reconnects both links.
 //! - One **feed** connection per attached session carries its output, read by its own
-//!   task, as in `amiri shell attach`. Each attachment has a generation chosen by the
+//!   task, as in `yolmira shell attach`. Each attachment has a generation chosen by the
 //!   frontend; every event carries it, so output from a replaced feed is ignored.
 //! - **Flow control:** a feed stops reading while more than [`FLOW_WINDOW`] bytes of
 //!   its output wait to be written by the terminal; the frontend acknowledges them
@@ -18,11 +18,6 @@
 //! daemon and its shells running.
 
 use crate::errors::{client_error, not_connected};
-use amiri_core::AmiriError;
-use amiri_ipc::protocol::{
-    methods, notifications, EventsSubscribeParams, HelloResult, SessionExited, SessionOutput,
-};
-use amiri_ipc::{ensure_daemon, Client, ClientError, Instance, LaunchOptions};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -31,6 +26,11 @@ use std::time::Duration;
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{Notify, Semaphore};
+use yolmira_core::YolmiraError;
+use yolmira_ipc::protocol::{
+    methods, notifications, EventsSubscribeParams, HelloResult, SessionExited, SessionOutput,
+};
+use yolmira_ipc::{ensure_daemon, Client, ClientError, Instance, LaunchOptions};
 
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 /// Opening a feed: connect plus the attach call (whose replay is streamed afterwards).
@@ -38,10 +38,10 @@ const ATTACH_TIMEOUT: Duration = Duration::from_secs(15);
 /// Unacknowledged output per feed, in bytes of the events' base64 data.
 pub const FLOW_WINDOW: usize = 1024 * 1024;
 const RECONNECT_EVERY: Duration = Duration::from_secs(1);
-const CLIENT_MONITOR: &str = "amiri-ui-monitor";
-const CLIENT_CONTROL: &str = "amiri-ui";
-const CLIENT_FEED: &str = "amiri-ui-attach";
-const CLIENT_GATED: &str = "amiri-ui-request";
+const CLIENT_MONITOR: &str = "yolmira-ui-monitor";
+const CLIENT_CONTROL: &str = "yolmira-ui";
+const CLIENT_FEED: &str = "yolmira-ui-attach";
+const CLIENT_GATED: &str = "yolmira-ui-request";
 
 /// Events the frontend listens to.
 pub mod ui_events {
@@ -59,7 +59,7 @@ pub struct DaemonState {
     pub version: Option<String>,
     pub instance: Option<String>,
     /// Why the UI isn't connected (none while connected).
-    pub error: Option<AmiriError>,
+    pub error: Option<YolmiraError>,
 }
 
 /// A feed event, tagged with the attachment generation it belongs to.
@@ -108,7 +108,7 @@ impl Feed {
 }
 
 pub struct Daemon {
-    instance: Result<Instance, AmiriError>,
+    instance: Result<Instance, YolmiraError>,
     /// Swapped without waiting, so a hung call never delays a disconnect. Lock order
     /// where both are held: `feeds`, then `control`.
     control: Mutex<Option<Arc<Link>>>,
@@ -133,7 +133,7 @@ fn breaks_connection(e: &ClientError) -> bool {
 }
 
 impl Daemon {
-    pub fn new(instance: Result<Instance, AmiriError>) -> Arc<Self> {
+    pub fn new(instance: Result<Instance, YolmiraError>) -> Arc<Self> {
         let state = DaemonState {
             instance: instance.as_ref().ok().and_then(|i| i.name.clone()),
             error: instance.as_ref().err().cloned(),
@@ -151,7 +151,7 @@ impl Daemon {
         lock(&self.state).clone()
     }
 
-    fn instance(&self) -> Result<&Instance, AmiriError> {
+    fn instance(&self) -> Result<&Instance, YolmiraError> {
         self.instance.as_ref().map_err(Clone::clone)
     }
 
@@ -168,7 +168,7 @@ impl Daemon {
         }
     }
 
-    fn down(&self, error: Option<AmiriError>) -> DaemonState {
+    fn down(&self, error: Option<YolmiraError>) -> DaemonState {
         DaemonState {
             instance: self.instance().ok().and_then(|i| i.name.clone()),
             error,
@@ -177,13 +177,13 @@ impl Daemon {
     }
 
     /// `ensure_daemon`: connect to a running daemon or start one detached.
-    pub async fn start(&self) -> Result<HelloResult, AmiriError> {
+    pub async fn start(&self) -> Result<HelloResult, YolmiraError> {
         let instance = self.instance()?.clone();
         let daemon_exe = std::env::current_exe()
-            .map(|p| p.with_file_name("amirid.exe"))
+            .map(|p| p.with_file_name("yolmirad.exe"))
             .map_err(|e| {
-                AmiriError::new("Find amirid.exe", "ui", e.to_string())
-                    .next_step("Reinstall AMIRI.")
+                YolmiraError::new("Find yolmirad.exe", "ui", e.to_string())
+                    .next_step("Reinstall Yolmira.")
             })?;
         let launched = ensure_daemon(LaunchOptions {
             instance,
@@ -237,7 +237,12 @@ impl Daemon {
     }
 
     /// One request on the control connection.
-    pub async fn call(&self, what: &str, method: &str, params: Value) -> Result<Value, AmiriError> {
+    pub async fn call(
+        &self,
+        what: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, YolmiraError> {
         self.call_served(what, method, params).await.map(|(v, _)| v)
     }
 
@@ -248,7 +253,7 @@ impl Daemon {
         what: &str,
         method: &str,
         params: Value,
-    ) -> Result<(Value, u32), AmiriError> {
+    ) -> Result<(Value, u32), YolmiraError> {
         let link = self.link().ok_or_else(|| not_connected(what))?;
         let mut client = link.client.lock().await;
         // Queued behind a call that broke this connection: fail now rather than wait
@@ -283,7 +288,7 @@ impl Daemon {
         what: &str,
         method: &str,
         params: Value,
-    ) -> Result<Value, AmiriError> {
+    ) -> Result<Value, YolmiraError> {
         if !self.state().connected {
             return Err(not_connected(what));
         }
@@ -291,7 +296,7 @@ impl Daemon {
         let mut c = Client::connect(instance, CLIENT_GATED)
             .await
             .map_err(|e| client_error(what, e))?;
-        c.call_value_within(method, params, amiri_ipc::client::ASK_LIMIT)
+        c.call_value_within(method, params, yolmira_ipc::client::ASK_LIMIT)
             .await
             .map_err(|e| client_error(what, e))
     }
@@ -303,7 +308,7 @@ impl Daemon {
         app: &AppHandle,
         id: String,
         generation: u32,
-    ) -> Result<Value, AmiriError> {
+    ) -> Result<Value, YolmiraError> {
         const WHAT: &str = "Attach to the shell";
         let instance = self.instance()?;
         let flow = Arc::new(Semaphore::new(FLOW_WINDOW));
@@ -340,7 +345,7 @@ impl Daemon {
                 Ok(result)
             }
             // Detached, replaced or disconnected while connecting: dropping `feed` detaches.
-            _ => Err(AmiriError::new(WHAT, "ui", "the attach was cancelled")
+            _ => Err(YolmiraError::new(WHAT, "ui", "the attach was cancelled")
                 .next_step("Attach again if you still want this shell.")),
         }
     }
@@ -490,8 +495,8 @@ async fn stay_connected(
     daemon.set_state(app, up);
     let why = tokio::select! {
         why = follow(app, monitor) => why,
-        () = link.broken.notified() => AmiriError::new(
-            "Stay connected to the AMIRI daemon", "ui", "a request failed mid-way; reconnecting",
+        () = link.broken.notified() => YolmiraError::new(
+            "Stay connected to the Yolmira daemon", "ui", "a request failed mid-way; reconnecting",
         ).next_step("Retry the last action once the UI has reconnected."),
     };
     tracing::info!("daemon connection lost: {}", why.why);
@@ -506,20 +511,20 @@ fn connect_failed(app: &AppHandle, daemon: &Daemon, e: ClientError) {
     if !keep {
         daemon.set_state(
             app,
-            daemon.down(Some(client_error("Connect to the AMIRI daemon", e))),
+            daemon.down(Some(client_error("Connect to the Yolmira daemon", e))),
         );
     }
 }
 
 /// Forward daemon events until the monitor connection breaks; returns why.
-async fn follow(app: &AppHandle, mut monitor: Client) -> AmiriError {
+async fn follow(app: &AppHandle, mut monitor: Client) -> YolmiraError {
     loop {
         match monitor.next_notification().await {
             Ok(n) if n.method == notifications::EVENT => {
                 emit(app, ui_events::DAEMON_EVENT, n.params)
             }
             Ok(_) => {}
-            Err(e) => return client_error("Stay connected to the AMIRI daemon", e),
+            Err(e) => return client_error("Stay connected to the Yolmira daemon", e),
         }
     }
 }

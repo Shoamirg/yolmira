@@ -73,5 +73,5 @@ jobs:
       - name: Tests (outside cargo's job object)
         shell: pwsh
         env:
-          AMIRI_CI_NO_BREAKAWAY: "1"
+          YOLMIRA_CI_NO_BREAKAWAY: "1"
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1

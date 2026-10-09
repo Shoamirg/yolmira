@@ -1,6 +1,6 @@
-# AMIRI — Dependency register
+# Yolmira — Dependency register
 
-One row per dependency (ARCHITECTURE §5.3): purpose, reason, alternatives, license, pinned version, date reviewed. "Known behaviour" lists what AMIRI relies on or works around in the pinned version; recheck it whenever the version changes.
+One row per dependency (ARCHITECTURE §5.3): purpose, reason, alternatives, license, pinned version, date reviewed. "Known behaviour" lists what Yolmira relies on or works around in the pinned version; recheck it whenever the version changes.
 
 | Crate | Purpose | Reason | Alternatives | License | Pinned | Reviewed | Known behaviour (recheck on upgrade) |
 |---|---|---|---|---|---|---|---|
@@ -19,9 +19,9 @@ Pinned by the committed `Cargo.lock` (123 packages in total at Slice A, includin
 | `serde` / `serde_json` | Serialization | Standard | — | MIT OR Apache-2.0 | 1.0.229 / 1.0.151 | 2026-09-25 | |
 | `uuid` (`v4`, `v7`) | Event IDs (v7), IPC token and test names (v4) | §5.1 | `ulid` | Apache-2.0 OR MIT | 1.26.1 | 2026-09-25 | |
 | `thiserror` | Store error type | §5.1 | — | MIT OR Apache-2.0 | 2.0.21 | 2026-09-25 | `portable-pty` also pulls `thiserror` 1.0.69 (duplicate) |
-| `tracing` / `tracing-subscriber` (`json`, `env-filter`) / `tracing-appender` | Daemon logs, JSON, daily files in `<home>\logs` | §5.1, §14 | `log` | MIT | 0.1.44 / 0.3.23 / 0.2.5 | 2026-09-25 | Level via `AMIRI_LOG` |
+| `tracing` / `tracing-subscriber` (`json`, `env-filter`) / `tracing-appender` | Daemon logs, JSON, daily files in `<home>\logs` | §5.1, §14 | `log` | MIT | 0.1.44 / 0.3.23 / 0.2.5 | 2026-09-25 | Level via `YOLMIRA_LOG` |
 | `clap` (`derive`) | CLI and daemon arguments | Standard | `argh` | MIT OR Apache-2.0 | 4.6.7 | 2026-09-25 | |
-| `portable-pty` | ConPTY shells (`amiri-exec`, Slice B) | §5.1; the version S1 tested | raw ConPTY via `windows-sys` | MIT | 0.9.0 | 2026-09-25 | ConPTY sends DSR (`ESC[6n`) and stalls until answered (S1 finding 5); its output doesn't reach EOF when the shell exits (only when the pseudoconsole closes), so exit is watched separately; it asks the outer terminal for win32-input-mode (`ESC[?9001h`) |
+| `portable-pty` | ConPTY shells (`yolmira-exec`, Slice B) | §5.1; the version S1 tested | raw ConPTY via `windows-sys` | MIT | 0.9.0 | 2026-09-25 | ConPTY sends DSR (`ESC[6n`) and stalls until answered (S1 finding 5); its output doesn't reach EOF when the shell exits (only when the pseudoconsole closes), so exit is watched separately; it asks the outer terminal for win32-input-mode (`ESC[?9001h`) |
 | `base64` | Terminal bytes in JSON-RPC (`session.input`, `session.output`, replay) | Standard; binary-safe | hex (twice the size) | MIT OR Apache-2.0 | 0.23.1 | 2026-09-25 | |
 | `windows-sys` features added in Slice B | `Win32_UI_Shell` + `Win32_System_Com` (known folders), `Win32_Globalization` (UTF-8 console code page) | | | | 0.61.2 | 2026-09-25 | |
 | `tempfile` (dev) | Test data folders | Standard | — | MIT OR Apache-2.0 | 3.27.0 | 2026-09-25 | |

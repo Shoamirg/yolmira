@@ -1,0 +1,17 @@
+[package]
+name = "yolmira-store"
+version = "0.1.0"
+description = "Yolmira SQLite store: event log, migrations, projections (ARCHITECTURE §7)."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+yolmira-core.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

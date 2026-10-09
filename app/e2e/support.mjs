@@ -14,9 +14,9 @@ import { randomUUID } from "node:crypto";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(HERE, "..", "..");
-export const APP_EXE = join(ROOT, "target", "debug", "amiri-app.exe");
-export const CLI_EXE = join(ROOT, "target", "debug", "amiri.exe");
-const DAEMON_EXE = join(ROOT, "target", "debug", "amirid.exe");
+export const APP_EXE = join(ROOT, "target", "debug", "yolmira-app.exe");
+export const CLI_EXE = join(ROOT, "target", "debug", "yolmira.exe");
+const DAEMON_EXE = join(ROOT, "target", "debug", "yolmirad.exe");
 /** WebDriver's Enter key (W3C key code point U+E007). */
 const KEY_ENTER = "\uE007";
 /** Where off-screen test windows open: beyond any monitor, but not minimized. */
@@ -101,7 +101,7 @@ async function childPid(parent, name) {
 export class Instance {
   constructor(label) {
     this.name = `e2e-${label}-${randomUUID().slice(0, 8)}`;
-    this.home = mkdtempSync(join(tmpdir(), "amiri-e2e-"));
+    this.home = mkdtempSync(join(tmpdir(), "yolmira-e2e-"));
     // Its own policies.toml (never the user's): cleanup stops the daemon without
     // asking. The UI tests of the ASK prompt write their own.
     this.writePolicies('[global]\n"daemon.stop" = "allow"\n');
@@ -209,19 +209,19 @@ export class Ui {
   static async launch(driver, instance, track, opts = {}) {
     const ui = track(new Ui(driver));
     ui.debugPort = await freePort();
-    ui.webviewData = mkdtempSync(join(tmpdir(), "amiri-e2e-wv-"));
+    ui.webviewData = mkdtempSync(join(tmpdir(), "yolmira-e2e-wv-"));
     const env = {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${ui.debugPort}`,
-      AMIRI_UI_WEBVIEW_DATA: ui.webviewData,
+      YOLMIRA_UI_WEBVIEW_DATA: ui.webviewData,
       // Windows open beyond every monitor (not minimized), so test runs don't pop up
       // on the desktop: same results and timings as on-screen (docs/phase1/slice-c.md).
-      // AMIRI_E2E_ONSCREEN=1 shows them.
-      ...(process.env.AMIRI_E2E_ONSCREEN === "1" ? {} : { AMIRI_UI_WINDOW_POSITION: OFFSCREEN }),
+      // YOLMIRA_E2E_ONSCREEN=1 shows them.
+      ...(process.env.YOLMIRA_E2E_ONSCREEN === "1" ? {} : { YOLMIRA_UI_WINDOW_POSITION: OFFSCREEN }),
     };
     if (opts.viaConsole) {
       ui.consolePid = await openConsole(env, [APP_EXE, ...instance.args()]);
-      ui.pid = await waitFor("the UI process under the console", () => childPid(ui.consolePid, "amiri-app.exe"));
+      ui.pid = await waitFor("the UI process under the console", () => childPid(ui.consolePid, "yolmira-app.exe"));
     } else {
       // Keep its exit code and the tail of its output: a UI that disappears mid-test
       // must say why (a panic message goes to stderr even in a GUI program).
@@ -364,7 +364,7 @@ export class Ui {
    */
   startRecording() {
     return this.exec(`
-      const seen = (window.__amiriSeen = []);
+      const seen = (window.__yolmiraSeen = []);
       const snap = () => seen.push({
         connected: document.querySelector('.daemon-chip')?.dataset.connected === 'true',
         rows: [...document.querySelectorAll('[data-testid=session-row]')].map((r) => [r.dataset.sessionId, r.dataset.sessionStatus]),
@@ -377,7 +377,7 @@ export class Ui {
     `);
   }
   recorded() {
-    return this.exec("return window.__amiriSeen ?? []");
+    return this.exec("return window.__yolmiraSeen ?? []");
   }
 }
 
@@ -409,19 +409,19 @@ async function openConsole(env, argv) {
  * Processes this harness started that are still running: its msedgedriver (by port),
  * WebView2 hosts using a test data folder, and daemons or UIs of a test instance.
  * Matched on the command line only, never by name alone: the system runs its own
- * WebView2 processes (e.g. Windows Search), and the user may run AMIRI.
+ * WebView2 processes (e.g. Windows Search), and the user may run Yolmira.
  */
 export async function leftovers(driverPort) {
   const r = await run("powershell.exe", [
     "-NoProfile",
     "-Command",
-    "Get-CimInstance Win32_Process -Filter \"Name='msedgedriver.exe' or Name='msedgewebview2.exe' or Name='amirid.exe' or Name='amiri-app.exe'\" | ForEach-Object { '{0}|{1}|{2}' -f $_.ProcessId, $_.Name, $_.CommandLine }",
+    "Get-CimInstance Win32_Process -Filter \"Name='msedgedriver.exe' or Name='msedgewebview2.exe' or Name='yolmirad.exe' or Name='yolmira-app.exe'\" | ForEach-Object { '{0}|{1}|{2}' -f $_.ProcessId, $_.Name, $_.CommandLine }",
   ]);
   if (r.code !== 0) throw new Error(`listing processes failed (${r.code}): ${r.stderr}`);
   const ours = (name, cmd) =>
     (name === "msedgedriver.exe" && driverPort !== undefined && cmd.includes(`--port=${driverPort}`)) ||
-    (name === "msedgewebview2.exe" && cmd.includes("amiri-e2e-wv-")) ||
-    ((name === "amirid.exe" || name === "amiri-app.exe") && /--instance\s+"?e2e-/.test(cmd));
+    (name === "msedgewebview2.exe" && cmd.includes("yolmira-e2e-wv-")) ||
+    ((name === "yolmirad.exe" || name === "yolmira-app.exe") && /--instance\s+"?e2e-/.test(cmd));
   return r.stdout
     .split(/\r?\n/)
     .filter(Boolean)

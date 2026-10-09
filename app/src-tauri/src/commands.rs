@@ -3,19 +3,19 @@
 
 use crate::daemon::{Daemon, DaemonState};
 use crate::errors::invalid;
-use amiri_core::AmiriError;
-use amiri_ipc::protocol::{
-    methods, AnswerDecision, AnswerScope, PendingAsk, PolicyAnswerParams, ProjectInfo,
-    SessionCreateParams, SessionInfo,
-};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
+use yolmira_core::YolmiraError;
+use yolmira_ipc::protocol::{
+    methods, AnswerDecision, AnswerScope, PendingAsk, PolicyAnswerParams, ProjectInfo,
+    SessionCreateParams, SessionInfo,
+};
 
-type Res<T> = Result<T, AmiriError>;
+type Res<T> = Result<T, YolmiraError>;
 type DaemonRef<'a> = State<'a, Arc<Daemon>>;
 
 /// The kinds the UI offers. WSL uses the default distribution.
