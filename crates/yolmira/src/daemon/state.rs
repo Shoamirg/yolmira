@@ -5,7 +5,7 @@
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use yolmira_core::event::{actors, kinds};
@@ -35,6 +35,10 @@ pub struct State {
     pub policy: super::policy::Gate,
     /// policies.toml / agents.toml: confirmed versions and pending loosening edits.
     pub config: super::config_guard::ConfigGuard,
+    /// Shell output queued for all clients together (`outbox`).
+    pub output_budget: Arc<super::outbox::OutputBudget>,
+    /// Connection admission (`slots`).
+    pub slots: super::slots::Slots,
 }
 
 impl State {
@@ -57,6 +61,8 @@ impl State {
             next_connection: AtomicU64::new(1),
             auth_failures: Mutex::new(HashMap::new()),
             sessions: super::sessions::Sessions::default(),
+            slots: super::slots::Slots::default(),
+            output_budget: super::outbox::OutputBudget::new(super::outbox::DAEMON_OUTPUT_BUDGET),
             identity,
             agent_jobs: super::peer::AgentJobs::default(),
             policy: super::policy::Gate::default(),

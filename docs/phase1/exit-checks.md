@@ -47,6 +47,34 @@ Flat: no growth over the hour. But this is the **overload path**, not the exit c
 - **Soak output held in memory:** yes, but per slow client, not the hour's output. The soak's test client searched all text received so far after every chunk (`expect_within`), which grows with the output; it fell behind, and the daemon kept it fed with scrollback replays. A connection's outbox was capped at 256 *messages*, not bytes: up to 256 lines of 256 KiB replay chunks (~350 KB each in base64 JSON, ~512 KiB allocated after doubling) ≈ 128 MiB, plus the session's broadcast buffer (1024 chunks of up to 16 KiB ≈ 16 MiB), the ring and its snapshot (≈ 4 MiB) and the baseline (8 MB): ≈ 156 MB by arithmetic; the remaining 25 to 35 MB is not itemized (likely allocator overhead).
 - Memory returns when the slow client leaves (16.5 MB), so it is bounded and flat, but large, and a real UI that falls behind could cost this per attached shell. Fixed in the output-budget commit (decisions.md 2026-10-09).
 
+### The output-budget fix
+
+Reviewer, 2026-10-09: done before Phase 1 closes. Code: `crates/yolmira/src/daemon/{outbox.rs, slots.rs}` and `session_handlers::forward`.
+
+- **Per-connection byte budgets** replace the 256-message cap. Shell output: 8 MiB per connection. Responses and events: 256 KiB per connection, and senders wait for room. Only the connection's own tasks wait; the shared event broadcast never waits on a client.
+- **Daemon-wide output budget:** 64 MiB across connections. It counts each connection's queued output beyond its first 512 KiB, so slow clients filling it can't get a client that keeps up refused.
+- **A slow client:** when it is over budget (or the broadcast lagged), its queued output for that shell is dropped and it is marked behind. Nothing more is queued for it until a whole snapshot fits. Then it gets one fresh scrollback snapshot (`reset`), with a new subscription taken atomically, so there is no gap and no repeat. At most one snapshot is pending per client and shell; copies are never queued. The attach replay takes the same path. At most 4 snapshots are copied and encoded at once, daemon-wide.
+- **The line being written** counts against the budgets until its write completes.
+- **Stalled clients:** a client stuck for 30 s is disconnected and an `ipc.client_stalled` event is logged. Stuck means one line not taken in that time, or a response or event waiting that long for room.
+- **Connections:** 128 for everyone; at most 16 per process; 48 more reserved for the verified UI (which may use 48 per process: a window plus one per attached shell). Refusals are logged as `ipc.auth_failed` with reason `too_many_connections` or `too_many_connections_from_process`.
+- **Per-shell broadcast buffer:** 1024 → 256 chunks. Forwarders no longer wait on clients, so they lag only when starved.
+- **Test helper:** `expect_within` searches only new text (it was quadratic). `Shell::text` keeps the latest 8 to 16 MiB. `Shell::resets` counts resyncs.
+
+**True worst case of the daemon's memory** with these limits: 176 connections (128 + 48 reserved), 32 live shells (`MAX_LIVE_SESSIONS`), every client misbehaving at once:
+
+| Item | Bound | Inside a budget? |
+|---|---|---|
+| Queued shell output | 64 MiB shared + 176 × 512 KiB floors = 152 MiB | yes |
+| Queued responses and events | 176 × 256 KiB = 44 MiB (plus at most one larger line each; real lines are small) | yes |
+| Snapshots being copied and encoded | 4 × (2 MiB + ~2.8 MB) ≈ 19 MiB | bounded by the permits |
+| Per-shell broadcast buffers | 32 × 256 × 16 KiB = 128 MiB | **no**: held per shell whether or not anyone reads |
+| Scrollback rings | 32 × 2 MiB = 64 MiB | **no**: by design |
+| Request lines being read | 176 × 1 MiB (`MAX_LINE`) = 176 MiB, only while clients send huge requests | **no** |
+| Baseline | ~8 MB | |
+| **Total** | **≈ 590 MiB**, plus allocator overhead | |
+
+In normal use (clients that keep up) the daemon stays in the tens of MB (memory probe above). The largest terms outside any budget are the request-line limit and the broadcast buffers. Follow-ups, not now: a smaller request-line limit for everything except `session.input`; binary or raw framing for output instead of base64 in JSON (base64 is what turns a 256 KiB chunk into ~350 KB).
+
 ## Earlier automated runs (old name, superseded)
 
 **Superseded by the rename (decisions.md 2026-10-09, AMIRI → Yolmira).** The results below were run on the old-name build and are kept as a record. The exit checks are rerun on the renamed build, and those results are the ones that count. Also from the old build: `wsl_shutdown_while_attached` passed 3 times on the throwaway distro `amiri-throwaway` (Alpine 3.24.2 minirootfs, SHA-256 `c5ca053c…90388677`, GPG signature by Alpine's key `0482 D840 22F5 2DF1 C4E7 CD43 293A CD09 07D9 495A` checked), once warm and twice from a stopped distro. A soak was stopped after 12 min for the rename: by then the daemon's private memory was flat at about 190 MB from minute 2 on, with 213 to 215 handles.

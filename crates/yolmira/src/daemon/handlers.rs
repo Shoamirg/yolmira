@@ -1,6 +1,7 @@
 //! Method handlers. Mutating methods record their event (protocol `METHODS` table).
 //! Store reads run on the blocking pool and in bounded pages.
 
+use super::outbox::Outbox;
 use super::policy::{self, Check};
 use super::project_handlers as ph;
 use super::server::{to_line, Conn};
@@ -9,7 +10,7 @@ use super::state::State;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use yolmira_core::event::kinds;
 use yolmira_core::policy::actions;
@@ -34,7 +35,7 @@ pub async fn dispatch(
     state: &Arc<State>,
     req: &Request,
     conn: &Conn,
-    tx: &mpsc::Sender<String>,
+    tx: &Arc<Outbox>,
     tasks: &mut ConnTasks,
 ) -> Outcome {
     let client = conn.client.as_str();
@@ -98,6 +99,8 @@ pub async fn dispatch(
         },
         #[cfg(debug_assertions)]
         DEBUG_SPAWN_IN_AGENT_JOB => params(req).and_then(|p| spawn_in_agent_job(state, p)),
+        #[cfg(debug_assertions)]
+        DEBUG_OUTPUT_STATS => Ok(output_stats(state)),
         methods::EVENTS_LIST => match params::<EventsListParams>(req) {
             Ok(p) => list(state, p).await,
             Err(e) => Err(e),
@@ -160,6 +163,24 @@ fn kill_check<'a>(state: &State, p: &SessionIdParams, conn: &'a Conn) -> Check<'
 /// gives a client nothing new; release builds don't have it.
 #[cfg(debug_assertions)]
 pub const DEBUG_SPAWN_IN_AGENT_JOB: &str = "debug.spawn_in_agent_job";
+
+/// Debug builds only, for tests: the output budgets and their high-water marks
+/// (`outbox`), so a test can check that slow clients stayed within them.
+#[cfg(debug_assertions)]
+pub const DEBUG_OUTPUT_STATS: &str = "debug.output_stats";
+
+#[cfg(debug_assertions)]
+fn output_stats(state: &State) -> Value {
+    let (limit, used, high, conn_high, resyncs) = state.output_budget.stats();
+    json!({
+        "daemon_limit": limit,
+        "daemon_used": used,
+        "daemon_high_water": high,
+        "connection_limit": super::outbox::OUTPUT_BUDGET,
+        "connection_high_water": conn_high,
+        "resyncs": resyncs,
+    })
+}
 
 #[cfg(debug_assertions)]
 #[derive(serde::Deserialize)]
@@ -252,13 +273,9 @@ async fn read_page(
 
 /// Replays events after `p.after` (if given) page by page, then forwards new ones.
 /// Subscribing to the broadcast first and de-duplicating by `seq` avoids a gap.
-fn subscribe(
-    state: &Arc<State>,
-    p: EventsSubscribeParams,
-    tx: &mpsc::Sender<String>,
-) -> JoinHandle<()> {
+fn subscribe(state: &Arc<State>, p: EventsSubscribeParams, tx: &Arc<Outbox>) -> JoinHandle<()> {
     let live = state.subscribe();
-    let (tx, state) = (tx.clone(), Arc::clone(state));
+    let (tx, state) = (Arc::clone(tx), Arc::clone(state));
     tokio::spawn(async move {
         let last = match p.after {
             Some(after) => after,
@@ -274,7 +291,7 @@ fn subscribe(
 async fn forward(
     state: Arc<State>,
     mut live: broadcast::Receiver<Event>,
-    tx: mpsc::Sender<String>,
+    tx: Arc<Outbox>,
     mut last: i64,
 ) {
     // Backlog, then whenever the broadcast lags: read from the log until caught up.
@@ -310,7 +327,7 @@ async fn forward(
                 continue;
             }
             last = e.seq;
-            if tx.send(notify(&e)).await.is_err() {
+            if !tx.send(notify(&e)).await {
                 return;
             }
         }

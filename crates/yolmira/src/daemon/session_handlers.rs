@@ -2,6 +2,7 @@
 //! output to that client until it detaches, disconnects, or the shell exits.
 //! Blocking work (process creation, pipe writes, SQLite) runs on the blocking pool.
 
+use super::outbox::{Offer, Outbox};
 use super::sessions::{self, CreateRequest, LiveSession};
 use super::state::State;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -9,7 +10,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use yolmira_core::event::kinds;
 use yolmira_core::{NewEvent, YolmiraError};
@@ -161,7 +162,7 @@ pub fn attach(
     state: &Arc<State>,
     p: SessionIdParams,
     client: &str,
-    tx: &mpsc::Sender<String>,
+    tx: &Arc<Outbox>,
     tasks: &mut ConnTasks,
 ) -> Result<Value, RpcError> {
     tasks.attachments.retain(|_, (task, _)| !task.is_finished());
@@ -172,7 +173,7 @@ pub fn attach(
         ));
     }
     let session = live(state, &p.id)?;
-    let (replay, rx) = session.output.attach();
+    let replay_bytes = session.output.attach() as u64;
     let reason: Reason = Arc::new(Mutex::new("disconnect"));
     let guard = AttachGuard {
         state: Arc::clone(state),
@@ -187,8 +188,7 @@ pub fn attach(
     )
     .for_session(&p.id);
     state.record(attached).map_err(RpcError::yolmira)?;
-    let replay_bytes = replay.len() as u64;
-    let task = tokio::spawn(forward(guard, replay, rx, tx.clone()));
+    let task = tokio::spawn(forward(guard, Arc::clone(tx)));
     tasks.attachments.insert(p.id, (task, reason));
     Ok(json!(SessionAttachResult {
         info: session.info(),
@@ -286,45 +286,61 @@ impl Drop for AttachGuard {
     }
 }
 
-async fn forward(
-    guard: AttachGuard,
-    replay: Vec<u8>,
-    mut rx: broadcast::Receiver<Arc<Vec<u8>>>,
-    tx: mpsc::Sender<String>,
-) {
-    let id = guard.session.id.clone();
-    if !send_replay(&tx, &id, &replay).await {
+/// Forwards a session's output to one client. Output never waits for the client: when
+/// the client's outbox is over budget (or the broadcast lagged), its queued output for
+/// this session is dropped and it is marked behind. While behind, nothing is queued for
+/// it; once a whole snapshot fits, it gets one fresh scrollback snapshot (`reset`) and a
+/// new subscription taken atomically with it, so its output resumes without a gap.
+async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
+    let id: Arc<str> = guard.session.id.as_str().into();
+    // The attach replay is the first snapshot, taken like any resync.
+    let Some(mut rx) = catch_up(&guard, &out, &id, false).await else {
         return;
-    }
+    };
+    let mut behind = false;
     let mut exit = guard.session.exit.clone();
     loop {
+        if behind {
+            match catch_up(&guard, &out, &id, true).await {
+                Some(fresh) => {
+                    rx = fresh;
+                    behind = false;
+                }
+                None => return,
+            }
+        }
         tokio::select! {
             r = rx.recv() => match r {
-                Ok(data) => {
-                    if !send_output(&tx, &id, &data, false).await {
-                        return;
+                Ok(data) => match out.offer_output(&id, vec![output_line(&id, &data, false)]) {
+                    Offer::Queued => {}
+                    Offer::Full => {
+                        out.drop_output(&id);
+                        behind = true;
                     }
-                }
-                // Fell behind: start over from the scrollback (the client clears and redraws).
+                    Offer::Closed => return,
+                },
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    let (snapshot, fresh) = guard.session.output.resync();
-                    rx = fresh;
-                    if !send_replay(&tx, &id, &snapshot).await {
-                        return;
-                    }
+                    out.drop_output(&id);
+                    behind = true;
                 }
                 Err(broadcast::error::RecvError::Closed) => return,
             },
             changed = exit.changed() => {
                 if changed.is_err() || exit.borrow().is_some() {
-                    // All output was delivered before the exit (PTY layer); drain it.
+                    // All output was delivered before the exit (PTY layer); pass it on.
                     while let Ok(data) = rx.try_recv() {
-                        send_output(&tx, &id, &data, false).await;
+                        if out.offer_output(&id, vec![output_line(&id, &data, false)]) != Offer::Queued {
+                            out.drop_output(&id);
+                            if catch_up(&guard, &out, &id, true).await.is_none() {
+                                return;
+                            }
+                            break; // the snapshot holds everything up to the exit
+                        }
                     }
                     let code = exit.borrow().flatten();
                     set_reason(&guard.reason, "exited");
-                    let n = Notification::new(notifications::SESSION_EXITED, json!(SessionExited { id: id.clone(), exit_code: code }));
-                    send_line(&tx, &n).await;
+                    let n = Notification::new(notifications::SESSION_EXITED, json!(SessionExited { id: id.to_string(), exit_code: code }));
+                    send_line(&out, &n).await;
                     return;
                 }
             }
@@ -332,21 +348,57 @@ async fn forward(
     }
 }
 
-/// The scrollback as `session.output` notifications: `reset` on the first (the client
-/// clears), each at most `REPLAY_CHUNK` bytes.
-async fn send_replay(tx: &mpsc::Sender<String>, id: &str, replay: &[u8]) -> bool {
-    if replay.is_empty() {
-        return send_output(tx, id, &[], true).await;
-    }
-    for (i, chunk) in replay.chunks(REPLAY_CHUNK).enumerate() {
-        if !send_output(tx, id, chunk, i == 0).await {
-            return false;
-        }
-    }
-    true
+/// Room for the largest snapshot: the whole scrollback, base64, in `REPLAY_CHUNK` pieces.
+fn snapshot_room() -> usize {
+    let cap = yolmira_exec::ring::DEFAULT_CAPACITY;
+    cap.div_ceil(3) * 4 + cap.div_ceil(REPLAY_CHUNK) * 256
 }
 
-async fn send_output(tx: &mpsc::Sender<String>, id: &str, data: &[u8], reset: bool) -> bool {
+/// Queue one snapshot of the scrollback (`resync`: a client that fell behind; otherwise
+/// the attach replay) with a new subscription. Waits until a whole snapshot fits the
+/// connection's and the daemon's budgets, and for one of the daemon's few snapshot
+/// permits (bounding the copies being encoded at once). Never queues more than one
+/// snapshot, and never one that doesn't fit. `None` when the connection is gone.
+async fn catch_up(
+    guard: &AttachGuard,
+    out: &Outbox,
+    id: &Arc<str>,
+    resync: bool,
+) -> Option<broadcast::Receiver<Arc<Vec<u8>>>> {
+    loop {
+        if !out.wait_output_room(snapshot_room()).await {
+            return None;
+        }
+        let _permit = out.global().snapshot_permit().await;
+        let (snapshot, fresh) = guard.session.output.resync();
+        match out.offer_output(id, replay_lines(id, &snapshot)) {
+            Offer::Queued => {
+                if resync {
+                    out.global().count_resync();
+                }
+                return Some(fresh);
+            }
+            // Another session on this connection, or another connection, took the room.
+            Offer::Full => continue,
+            Offer::Closed => return None,
+        }
+    }
+}
+
+/// The scrollback as `session.output` lines: `reset` on the first (the client clears),
+/// each at most `REPLAY_CHUNK` bytes.
+fn replay_lines(id: &str, replay: &[u8]) -> Vec<String> {
+    if replay.is_empty() {
+        return vec![output_line(id, &[], true)];
+    }
+    replay
+        .chunks(REPLAY_CHUNK)
+        .enumerate()
+        .map(|(i, chunk)| output_line(id, chunk, i == 0))
+        .collect()
+}
+
+fn output_line(id: &str, data: &[u8], reset: bool) -> String {
     let n = Notification::new(
         notifications::SESSION_OUTPUT,
         json!(SessionOutput {
@@ -355,12 +407,15 @@ async fn send_output(tx: &mpsc::Sender<String>, id: &str, data: &[u8], reset: bo
             reset
         }),
     );
-    send_line(tx, &n).await
+    serde_json::to_string(&n).unwrap_or_else(|e| {
+        tracing::error!(error = %e, "output serialize failed");
+        String::new()
+    })
 }
 
-async fn send_line(tx: &mpsc::Sender<String>, n: &Notification) -> bool {
+async fn send_line(out: &Outbox, n: &Notification) -> bool {
     match serde_json::to_string(n) {
-        Ok(line) => tx.send(line).await.is_ok(),
+        Ok(line) => out.send(line).await,
         Err(e) => {
             tracing::error!(error = %e, "notification serialize failed");
             true

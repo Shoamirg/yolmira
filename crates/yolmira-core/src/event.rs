@@ -86,6 +86,8 @@ pub mod kinds {
     pub const DAEMON_STOPPING: &str = "daemon.stopping";
     pub const DAEMON_STOPPED: &str = "daemon.stopped";
     pub const IPC_AUTH_FAILED: &str = "ipc.auth_failed";
+    /// A client that took no output for the stall limit was disconnected (`outbox`).
+    pub const IPC_CLIENT_STALLED: &str = "ipc.client_stalled";
     pub const SESSION_CREATED: &str = "session.created";
     pub const SESSION_EXITED: &str = "session.exited";
     pub const SESSION_UNKNOWN: &str = "session.unknown";

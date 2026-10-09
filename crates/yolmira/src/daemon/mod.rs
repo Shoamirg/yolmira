@@ -6,6 +6,7 @@ mod auth;
 mod config_guard;
 mod console;
 mod handlers;
+mod outbox;
 mod peer;
 mod policy;
 mod project_handlers;
@@ -13,6 +14,7 @@ mod server;
 mod session_handlers;
 mod sessions;
 mod shutdown;
+mod slots;
 mod state;
 
 use clap::Parser;

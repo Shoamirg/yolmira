@@ -3,20 +3,21 @@
 
 use super::auth::authenticate;
 use super::handlers::{self, Outcome};
-use super::peer::Peer;
+use super::outbox::Outbox;
+use super::peer::{self, Peer};
 use super::session_handlers::ConnTasks;
+use super::slots::Slot;
 use super::state::State;
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::Semaphore;
 use yolmira_ipc::framing::{read_line, MAX_LINE};
 use yolmira_ipc::protocol::{codes, Request, Response, RpcError};
 use yolmira_ipc::win::security::{owner_only_sddl, SecurityDescriptor};
 
-const OUTBOX: usize = 256;
 /// Connections that haven't completed `hello` yet. More are dropped on arrival.
 const MAX_UNAUTHENTICATED: usize = 16;
 const RETRY: Duration = Duration::from_millis(200);
@@ -81,9 +82,23 @@ pub async fn serve(state: Arc<State>, mut factory: PipeFactory, first: NamedPipe
             tracing::warn!(error = %e, "pipe connect failed");
             continue;
         }
+        // Who connected, as Windows reports it, before any byte is read.
+        let peer = {
+            use std::os::windows::io::AsRawHandle;
+            Peer::of_pipe(current.as_raw_handle())
+        };
+        let ui = peer::is_trusted_ui(&peer, &state.agent_jobs, &state.instance.config_dir());
+        let slot = match state.slots.admit(peer.pid, ui) {
+            Ok(slot) => slot,
+            Err(refused) => {
+                state.record_auth_failure(refused.reason(), None);
+                drop(current);
+                continue;
+            }
+        };
         match Arc::clone(&gate).try_acquire_owned() {
             Ok(permit) => {
-                tokio::spawn(connection(Arc::clone(&state), current, permit));
+                tokio::spawn(connection(Arc::clone(&state), current, peer, permit, slot));
             }
             Err(_) => {
                 state.record_auth_failure("too_many_unauthenticated", None);
@@ -96,22 +111,31 @@ pub async fn serve(state: Arc<State>, mut factory: PipeFactory, first: NamedPipe
 async fn connection(
     state: Arc<State>,
     pipe: NamedPipeServer,
+    peer: Peer,
     permit: tokio::sync::OwnedSemaphorePermit,
+    _slot: Slot,
 ) {
-    // Who connected, as Windows reports it, before any byte is read.
-    let peer = {
-        use std::os::windows::io::AsRawHandle;
-        Peer::of_pipe(pipe.as_raw_handle())
-    };
     let (r, mut w) = tokio::io::split(pipe);
     let mut reader = BufReader::new(r);
-    let (tx, mut rx) = mpsc::channel::<String>(OUTBOX);
+    let tx = Outbox::new(Arc::clone(&state.output_budget));
+    let out = Arc::clone(&tx);
     let writer = tokio::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if w.write_all(format!("{line}\n").as_bytes()).await.is_err()
-                || w.flush().await.is_err()
-            {
-                break;
+        while let Some(line) = out.next().await {
+            let write = async {
+                w.write_all(line.as_bytes()).await?;
+                w.flush().await
+            };
+            match tokio::time::timeout(out.stall_limit(), write).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    out.close();
+                    break;
+                }
+                // The client stopped reading: one line not taken in the stall limit.
+                Err(_) => {
+                    out.stall("not reading");
+                    break;
+                }
             }
         }
     });
@@ -127,26 +151,59 @@ async fn connection(
         };
         serve_requests(&state, &mut reader, &tx, &conn, &mut tasks).await;
         state.client_disconnected();
+        if let Some(why) = tx.stalled() {
+            stalled(&state, &conn, why);
+        }
     }
     // Subscription and attachment tasks hold senders; stop them so the writer finishes.
     tasks.abort_all();
-    drop(tx);
+    tx.finish();
+    if tx.stalled().is_some() {
+        writer.abort(); // it may be stuck in a write the client never takes
+    }
     if let Err(e) = writer.await {
-        tracing::debug!(error = %e, "connection writer ended abnormally");
+        if !e.is_cancelled() {
+            tracing::debug!(error = %e, "connection writer ended abnormally");
+        }
+    }
+}
+
+/// A client that took nothing for the stall limit was disconnected: say so.
+fn stalled(state: &State, conn: &Conn, why: &str) {
+    tracing::warn!(client = %conn.client, connection = conn.id, pid = ?conn.peer.pid, why, "client stalled; disconnected");
+    let payload = serde_json::json!({
+        "client": conn.client,
+        "connection": conn.id,
+        "pid": conn.peer.pid,
+        "why": why,
+        "stall_limit_s": super::outbox::STALL_LIMIT.as_secs(),
+    });
+    let event = yolmira_core::NewEvent::new(
+        yolmira_core::event::kinds::IPC_CLIENT_STALLED,
+        yolmira_core::event::actors::YOLMIRA,
+        payload,
+    );
+    if let Err(e) = state.record(event) {
+        tracing::error!(error = %e, "could not record ipc.client_stalled");
     }
 }
 
 async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
     state: &Arc<State>,
     reader: &mut R,
-    tx: &mpsc::Sender<String>,
+    tx: &Arc<Outbox>,
     conn: &Conn,
     tasks: &mut ConnTasks,
 ) {
     let client = conn.client.as_str();
     tracing::debug!(client, connection = conn.id, pid = ?conn.peer.pid, "client authenticated");
     loop {
-        let line = match read_line(reader, MAX_LINE).await {
+        // A stalled client's outbox closes: the connection ends even if it never writes.
+        let read = tokio::select! {
+            r = read_line(reader, MAX_LINE) => r,
+            _ = tx.closed() => return,
+        };
+        let line = match read {
             Ok(Some(line)) => line,
             Ok(None) => return,
             Err(e) => {
@@ -172,8 +229,8 @@ async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
 }
 
 /// Queue a response; `false` if the connection is gone.
-pub async fn send(tx: &mpsc::Sender<String>, r: &Response) -> bool {
-    tx.send(to_line(r)).await.is_ok()
+pub async fn send(tx: &Outbox, r: &Response) -> bool {
+    tx.send(to_line(r)).await
 }
 
 pub fn to_line(r: &Response) -> String {

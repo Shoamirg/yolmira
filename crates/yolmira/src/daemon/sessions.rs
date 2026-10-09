@@ -18,7 +18,10 @@ use yolmira_exec::{resolve, PtyEvent, PtySession, PtySpec, Ring, ShellKind};
 use yolmira_ipc::protocol::SessionInfo;
 use yolmira_ipc::win::env::child_env;
 
-const OUTPUT_CHANNEL: usize = 1024;
+/// Output chunks (up to 16 KiB each) a session's broadcast keeps for its forwarders. The
+/// channel keeps its last chunks even once read, so this is held per session: 4 MiB.
+/// Forwarders never wait on clients (`outbox`), so they lag only when starved.
+const OUTPUT_CHANNEL: usize = 256;
 /// Live shells per daemon (each is a ConPTY, a conhost, two threads and a 2 MiB ring).
 pub const MAX_LIVE_SESSIONS: usize = 32;
 const WHERE: &str = "yolmirad sessions";
@@ -43,14 +46,16 @@ impl Output {
         }
     }
 
-    /// Snapshot, subscribe and count the client, atomically.
-    pub fn attach(&self) -> (Vec<u8>, broadcast::Receiver<Chunk>) {
+    /// Count a client; returns the scrollback's current size. Its forwarder then takes
+    /// the snapshot (`resync`) when its outbox has room for it.
+    pub fn attach(&self) -> usize {
         let mut inner = lock(&self.inner);
         inner.1 += 1;
-        (inner.0.snapshot(), self.tx.subscribe())
+        inner.0.len()
     }
 
-    /// After a lag: fresh snapshot and subscription for an already-counted client.
+    /// Snapshot and subscribe, atomically: output after the snapshot arrives through the
+    /// new subscription, so nothing is missed or repeated.
     pub fn resync(&self) -> (Vec<u8>, broadcast::Receiver<Chunk>) {
         let inner = lock(&self.inner);
         (inner.0.snapshot(), self.tx.subscribe())

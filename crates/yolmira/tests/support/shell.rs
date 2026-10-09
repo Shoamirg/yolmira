@@ -25,6 +25,9 @@ pub const SHELL_START: Duration = Duration::from_secs(120);
 pub const PTY_TEST: Duration = Duration::from_secs(300);
 /// The test transcript keeps this much of the latest output.
 const TRANSCRIPT_KEEP: usize = 64 * 1024;
+/// `Shell::text` keeps at least this much of the latest output (an hour of flood must
+/// not grow the test process without bound); trimmed when it reaches twice this.
+pub const TEXT_KEEP: usize = 8 * 1024 * 1024;
 
 /// Error text including the daemon's `why` (the RPC message alone is only the `what`).
 fn describe(e: yolmira_ipc::ClientError) -> String {
@@ -42,8 +45,11 @@ pub struct Shell {
     pub info: SessionInfo,
     ctl: Client,
     feed: Client,
-    /// All output seen so far (lossy UTF-8), including the replay.
+    /// Output since the last `reset` (lossy UTF-8), including the replay; at most the
+    /// latest `2 * TEXT_KEEP` bytes.
     pub text: String,
+    /// `reset` notifications received: 1 for the attach replay, one more per resync.
+    pub resets: u32,
     /// Output bytes received since attaching (the replay counts first).
     replayed: u64,
     pub exited: Option<Option<i64>>,
@@ -108,6 +114,7 @@ impl Shell {
             ctl,
             feed,
             text: String::new(),
+            resets: 0,
             replayed: 0,
             exited: None,
             home: env.home(),
@@ -177,13 +184,29 @@ impl Shell {
     }
 
     pub async fn expect_within(&mut self, needle: &str, timeout: Duration) {
+        // Search only text not searched yet (plus an overlap for a needle split across
+        // chunks): searching all text after every chunk grew quadratically with output and
+        // made a long flood's client fall behind (Phase 1 exit checks, soak).
         let found = tokio::time::timeout(timeout, async {
-            while !self.text.contains(needle) {
+            let (mut from, mut seen_resets, mut seen_len) = (0, self.resets, 0);
+            loop {
+                if self.resets != seen_resets || self.text.len() < seen_len {
+                    from = 0; // cleared by a reset, or trimmed
+                    seen_resets = self.resets;
+                }
+                let mut start = from.min(self.text.len());
+                while !self.text.is_char_boundary(start) {
+                    start -= 1;
+                }
+                if self.text[start..].contains(needle) {
+                    return true;
+                }
+                from = self.text.len().saturating_sub(needle.len());
+                seen_len = self.text.len();
                 if !self.pump().await {
                     return false;
                 }
             }
-            true
         })
         .await
         .unwrap_or(false);
@@ -228,6 +251,7 @@ impl Shell {
             let data = B64.decode(o.data).expect("base64");
             if o.reset {
                 self.text.clear();
+                self.resets += 1;
             }
             // The daemon answers ConPTY's cursor request and never forwards it.
             assert!(
@@ -237,6 +261,13 @@ impl Shell {
             self.replayed += data.len() as u64;
             let chunk = String::from_utf8_lossy(&data);
             self.text.push_str(&chunk);
+            if self.text.len() >= 2 * TEXT_KEEP {
+                let mut cut = self.text.len() - TEXT_KEEP;
+                while !self.text.is_char_boundary(cut) {
+                    cut += 1;
+                }
+                self.text.drain(..cut);
+            }
             self.mirror(&chunk, o.reset);
         } else if n.method == notifications::SESSION_EXITED {
             let e: SessionExited = serde_json::from_value(n.params).expect("exited");

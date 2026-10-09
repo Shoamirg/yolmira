@@ -1,11 +1,11 @@
 //! The first request on a connection must be `hello` with the current token.
 
+use super::outbox::Outbox;
 use super::server::{send, to_line};
 use super::state::State;
 use serde_json::json;
 use std::time::Duration;
 use tokio::io::AsyncBufRead;
-use tokio::sync::mpsc;
 use yolmira_ipc::framing::{read_line, MAX_HELLO_LINE};
 use yolmira_ipc::protocol::{
     codes, methods, HelloParams, HelloResult, Request, Response, RpcError, PROTOCOL_VERSION,
@@ -19,7 +19,7 @@ const MAX_CLIENT_NAME: usize = 64;
 pub async fn authenticate<R: AsyncBufRead + Unpin>(
     state: &State,
     reader: &mut R,
-    tx: &mpsc::Sender<String>,
+    tx: &Outbox,
 ) -> Option<(String, u64)> {
     let line = match tokio::time::timeout(HELLO_TIMEOUT, read_line(reader, MAX_HELLO_LINE)).await {
         Ok(Ok(Some(line))) => line,
@@ -73,7 +73,7 @@ pub fn valid_client_name(name: &str) -> bool {
 
 async fn reject<T>(
     state: &State,
-    tx: &mpsc::Sender<String>,
+    tx: &Outbox,
     id: Option<u64>,
     reason: &str,
     client: Option<&str>,
