@@ -455,7 +455,7 @@ function newestSource(roots) {
   const visit = (path) => {
     const st = statSync(path);
     if (st.isDirectory()) {
-      for (const name of readdirSync(path)) if (name !== "target" && name !== "node_modules") visit(join(path, name));
+      for (const name of readdirSync(path)) if (!["target", "node_modules", "tests"].includes(name)) visit(join(path, name));
     } else if (exts.test(path) && st.mtimeMs > newest.time) {
       newest = { time: st.mtimeMs, file: path };
     }
