@@ -26,12 +26,7 @@ const STALL_LIMIT: Duration = Duration::from_secs(30);
 fn env_with_test_ui() -> TestEnv {
     let env = TestEnv::new();
     env.write_policies(KILL_ASKS);
-    let me = std::env::current_exe().expect("test exe");
-    std::fs::write(
-        env.instance().config_dir().join("debug-trusted-ui.txt"),
-        me.to_string_lossy().as_bytes(),
-    )
-    .expect("trusted UI file");
+    env.trust_this_test_as_ui();
     env.start();
     env
 }

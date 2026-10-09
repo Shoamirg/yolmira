@@ -66,6 +66,19 @@ impl TestEnv {
         std::fs::write(&path, toml).expect("write policies.toml");
     }
 
+    /// Make the daemon treat this test binary as the Yolmira UI (debug builds only, via
+    /// a file in the instance's own config folder). Call before `start`.
+    pub fn trust_this_test_as_ui(&self) {
+        let me = std::env::current_exe().expect("test exe");
+        let config = self.instance().config_dir();
+        std::fs::create_dir_all(&config).expect("config folder");
+        std::fs::write(
+            config.join("debug-trusted-ui.txt"),
+            me.to_string_lossy().as_bytes(),
+        )
+        .expect("trusted UI file");
+    }
+
     /// For tests of detaching itself. Returns false (test must return) only on CI with
     /// the explicit flag; anywhere else a restrictive job is a hard failure.
     pub fn require_detach(&self, test: &str) -> bool {

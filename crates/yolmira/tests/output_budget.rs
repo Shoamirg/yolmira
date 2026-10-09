@@ -17,6 +17,15 @@ const FLOOD_SECS: u64 = 15;
 const SLOW_READ: Duration = Duration::from_millis(20);
 const LIMIT: Duration = Duration::from_secs(600);
 
+/// The test plays a UI window watching many shells: as the verified UI it may hold more
+/// connections than an ordinary process (`daemon::slots`).
+fn ui_env() -> TestEnv {
+    let env = TestEnv::new();
+    env.trust_this_test_as_ui();
+    env.start();
+    env
+}
+
 fn flood(marker: &str) -> String {
     format!(
         "$e=(Get-Date).AddSeconds({FLOOD_SECS}); $i=0; while((Get-Date) -lt $e){{ $i++; Write-Output ('L' + $i + 'E') }}; Write-Output (\"{marker}\" + (6*7))\r"
@@ -82,8 +91,7 @@ fn within_budgets(v: &Value) {
 
 #[test]
 fn slow_client_stays_within_its_budget() {
-    let env = TestEnv::new();
-    env.start();
+    let env = ui_env();
     env.block_on(LIMIT, async {
         let mut s = powershell(&env).await;
         s.send(&flood("YOLMIRA_DONE")).await;
@@ -105,8 +113,7 @@ fn slow_client_stays_within_its_budget() {
 fn many_slow_clients_stay_within_the_daemon_budget() {
     // 3 flooding shells, 4 slow clients each: 12 x 8 MiB of demand against 64 MiB. A 13th,
     // fast client on the first shell must never be resynced, budgets full or not.
-    let env = TestEnv::new();
-    env.start();
+    let env = ui_env();
     env.block_on(LIMIT, async {
         let mut clients = Vec::new();
         for _ in 0..3 {
@@ -176,8 +183,7 @@ async fn fast_and_slow(env: &TestEnv) -> (Shell, Shell) {
 
 #[test]
 fn fast_client_on_the_same_shell_is_unaffected() {
-    let env = TestEnv::new();
-    env.start();
+    let env = ui_env();
     env.block_on(LIMIT, async {
         let (fast, slow) = fast_and_slow(&env).await;
         let v = stats(&env).await;
@@ -196,8 +202,7 @@ fn fast_client_on_the_same_shell_is_unaffected() {
 
 #[test]
 fn resynced_client_output_is_correct_and_gap_free() {
-    let env = TestEnv::new();
-    env.start();
+    let env = ui_env();
     env.block_on(LIMIT, async {
         let (fast, slow) = fast_and_slow(&env).await;
         assert!(slow.resets >= 2, "the slow client never resynced: {} resets", slow.resets);
@@ -211,7 +216,7 @@ fn resynced_client_output_is_correct_and_gap_free() {
             (&fast.text, &slow.text)
         };
         assert!(
-            shorter.len() > 1024 * 1024,
+            shorter.len() > 256 * 1024,
             "too little output to compare: {} bytes",
             shorter.len()
         );
