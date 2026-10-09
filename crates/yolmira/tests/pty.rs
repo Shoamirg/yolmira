@@ -305,6 +305,15 @@ fn soak_1h_output_flood() {
         // No lost exit status after the flood.
         s.send("exit 7\r").await;
         assert_eq!(s.wait_exit().await, Some(7), "exit status after the soak");
+        // Whether the client kept up: resyncs beyond the attach replay, and the output
+        // budgets' high-water marks (Phase 1 exit checks: the real soak's client must keep
+        // up; the first soak's fell behind and was recorded as the overload path).
+        let mut c = env.client().await;
+        let stats: serde_json::Value = c
+            .call("debug.output_stats", json!({}))
+            .await
+            .expect("debug.output_stats");
+        println!("SOAK client resyncs: {}; output stats: {stats}", s.resets - 1);
     });
     // Scrollback is bounded: the daemon's memory stays far below the flood volume.
     let ws =
