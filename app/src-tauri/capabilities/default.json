@@ -17,6 +17,9 @@
     "allow-session-input",
     "allow-session-resize",
     "allow-session-kill",
+    "allow-project-list",
+    "allow-project-add",
+    "allow-project-remove",
     "allow-policy-pending",
     "allow-policy-code",
     "allow-policy-answer"

@@ -30,6 +30,7 @@ function useDaemonLink() {
         if (cancelled) return;
         if (e.kind.startsWith("session.")) scheduleRefresh();
         if (e.kind.startsWith("policy.")) void store().refreshAsks();
+        if (e.kind.startsWith("project.")) void store().refreshProjects();
       },
       output: (o) => !cancelled && store().onOutput(o),
       exited: (e) => !cancelled && store().onExited(e),

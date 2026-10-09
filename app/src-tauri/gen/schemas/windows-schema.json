@@ -207,6 +207,24 @@
           "markdownDescription": "Enables the policy_pending command without any pre-configured scope."
         },
         {
+          "description": "Enables the project_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-project-add",
+          "markdownDescription": "Enables the project_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the project_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-project-list",
+          "markdownDescription": "Enables the project_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the project_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-project-remove",
+          "markdownDescription": "Enables the project_remove command without any pre-configured scope."
+        },
+        {
           "description": "Enables the session_ack command without any pre-configured scope.",
           "type": "string",
           "const": "allow-session-ack",
@@ -283,6 +301,24 @@
           "type": "string",
           "const": "deny-policy-pending",
           "markdownDescription": "Denies the policy_pending command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the project_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-project-add",
+          "markdownDescription": "Denies the project_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the project_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-project-list",
+          "markdownDescription": "Denies the project_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the project_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-project-remove",
+          "markdownDescription": "Denies the project_remove command without any pre-configured scope."
         },
         {
           "description": "Denies the session_ack command without any pre-configured scope.",

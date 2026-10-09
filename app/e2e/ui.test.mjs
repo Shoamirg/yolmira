@@ -2,6 +2,8 @@
 // Every test uses its own daemon instance and its own UI processes.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { Driver, Instance, Ui, assertNoLeftovers, isAlive, killPid, requireBuilt, sleep, waitFor } from "./support.mjs";
 
 let driver;
@@ -242,4 +244,27 @@ e2e("ui_approval_prompt", async () => {
   const ev = await instance.cli("events", "--kind", "policy.answered", "--limit", "10");
   const vias = ev.stdout.split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l).payload.via);
   assert.deepEqual(vias, ["ui", "code", "ui"]);
+});
+
+// Slice D: register a project in the UI (a non-ASCII folder), pick it, and a new
+// shell starts there (`project_shell_starts_in_repo`, through the UI).
+e2e("project_picker", async () => {
+  const instance = track(new Instance("project"));
+  const ui = await Ui.launch(driver, instance, track);
+  await ui.waitConnected();
+  const dir = join(instance.home, "Проект oʻzbek");
+  mkdirSync(dir);
+  await ui.click("[data-testid=project-add-toggle]");
+  await ui.fill("[data-testid=project-name]", "web");
+  await ui.fill("[data-testid=project-path]", dir);
+  await ui.click("[data-testid=project-add]");
+  await waitFor("the project selected", () => ui.exec("return document.querySelector('[data-testid=project-select]').value === 'web'"));
+  const id = await ui.newCmd();
+  await ui.typeLine("cd");
+  await ui.waitLine(id, dir);
+  await waitFor("the row tagged with the project", () =>
+    ui.exec("return document.querySelector(`[data-testid=session-row][data-session-id=\"${arguments[0]}\"] [data-testid=session-project]`)?.textContent === 'web'", id),
+  );
+  const listed = await instance.cli("project", "list");
+  assert.deepEqual(JSON.parse(listed.stdout), [{ name: "web", path: dir }]);
 });

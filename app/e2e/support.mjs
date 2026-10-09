@@ -271,6 +271,11 @@ export class Ui {
     const el = await this.wd("POST", "/element", { using: "css selector", value: css });
     await this.wd("POST", `/element/${Object.values(el)[0]}/click`, {});
   }
+  /** Type into a form field (as keystrokes, like a person). */
+  async fill(css, text) {
+    const el = await this.wd("POST", "/element", { using: "css selector", value: css });
+    await this.wd("POST", `/element/${Object.values(el)[0]}/value`, { text });
+  }
   /** Type into the visible terminal, then press Enter. */
   async typeLine(text) {
     const el = await this.wd("POST", "/element", { using: "css selector", value: ".pane:not([hidden]) .xterm-helper-textarea" });

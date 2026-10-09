@@ -6,6 +6,7 @@ import {
   type DaemonState,
   type FeedClosed,
   type PendingAsk,
+  type ProjectInfo,
   type SessionExited,
   type SessionInfo,
   type SessionOutput,
@@ -31,6 +32,9 @@ type Store = {
   /** Requests waiting for an answer, and their CLI codes (fetched per request). */
   asks: PendingAsk[];
   askCodes: Record<string, string>;
+  projects: ProjectInfo[];
+  /** New shells start in this project's folder (null: the profile folder). */
+  selectedProject: string | null;
 
   setDaemon: (d: DaemonState) => void;
   resume: () => Promise<void>;
@@ -47,6 +51,10 @@ type Store = {
   showError: (e: unknown, what: string) => void;
   dismissError: () => void;
   refreshAsks: () => Promise<void>;
+  refreshProjects: () => Promise<void>;
+  selectProject: (name: string | null) => void;
+  /** True once registered (the form closes). */
+  addProject: (name: string, path: string) => Promise<boolean>;
   answerAsk: (id: string, allow: boolean, forSession: boolean) => Promise<void>;
 };
 
@@ -85,6 +93,8 @@ export const useStore = create<Store>((set, get) => {
     error: null,
     asks: [],
     askCodes: {},
+    projects: [],
+    selectedProject: null,
 
     // A different daemon (even without a disconnect in between) counts as one: its
     // feeds are gone and its list must be reloaded before anything shows RUNNING.
@@ -101,6 +111,7 @@ export const useStore = create<Store>((set, get) => {
       if (d.connected) {
         void get().resume();
         void get().refreshAsks();
+        void get().refreshProjects();
       } else {
         set({ asks: [], askCodes: {} });
       }
@@ -135,7 +146,7 @@ export const useStore = create<Store>((set, get) => {
 
     openNew: async (kind) => {
       try {
-        const info = await api.sessionCreate(kind, DEFAULT_COLS, DEFAULT_ROWS);
+        const info = await api.sessionCreate(kind, DEFAULT_COLS, DEFAULT_ROWS, get().selectedProject);
         set((s) => ({ sessions: [info, ...s.sessions.filter((x) => x.id !== info.id)] }));
         await get().attach(info.id);
       } catch (e) {
@@ -222,6 +233,34 @@ export const useStore = create<Store>((set, get) => {
         }
       } catch (e) {
         fail("Show requests waiting for approval")(e);
+      }
+    },
+
+    refreshProjects: async () => {
+      if (!get().daemon.connected) return;
+      try {
+        const projects = await api.projectList();
+        // A removed project can't stay selected.
+        set((s) => ({
+          projects,
+          selectedProject: projects.some((p) => p.name === s.selectedProject) ? s.selectedProject : null,
+        }));
+      } catch (e) {
+        fail("List projects")(e);
+      }
+    },
+
+    selectProject: (name) => set({ selectedProject: name }),
+
+    addProject: async (name, path) => {
+      try {
+        const p = await api.projectAdd(name, path);
+        await get().refreshProjects();
+        set({ selectedProject: p.name });
+        return true;
+      } catch (e) {
+        fail("Register the project")(e);
+        return false;
       }
     },
 

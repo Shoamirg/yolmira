@@ -31,7 +31,10 @@ export type SessionInfo = {
   attached: number;
   cols: number;
   rows: number;
+  project: string | null;
 };
+
+export type ProjectInfo = { name: string; path: string };
 
 /** A session list and the pid of the daemon process that answered it. */
 export type SessionSnapshot = { daemon_pid: number; sessions: SessionInfo[] };
@@ -65,8 +68,11 @@ export const api = {
   daemonState: () => invoke<DaemonState>("daemon_state"),
   daemonStart: () => invoke<void>("daemon_start"),
   sessionList: () => invoke<SessionSnapshot>("session_list"),
-  sessionCreate: (kind: ShellKind, cols: number, rows: number) =>
-    invoke<SessionInfo>("session_create", { kind, cols, rows }),
+  sessionCreate: (kind: ShellKind, cols: number, rows: number, project: string | null) =>
+    invoke<SessionInfo>("session_create", { kind, cols, rows, project }),
+  projectList: () => invoke<ProjectInfo[]>("project_list"),
+  projectAdd: (name: string, path: string) => invoke<ProjectInfo>("project_add", { name, path }),
+  projectRemove: (name: string) => invoke<void>("project_remove", { name }),
   sessionAttach: (id: string, generation: number) => invoke<unknown>("session_attach", { id, generation }),
   sessionAck: (id: string, generation: number, credit: number) =>
     invoke<void>("session_ack", { id, generation, credit }),

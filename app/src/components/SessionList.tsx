@@ -1,6 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
 import type { ShellKind } from "../api";
 import { shownStatus } from "../status";
+import { ProjectPicker } from "./ProjectPicker";
 import { statusView, useStore } from "../store";
 
 const NEW_KINDS: { kind: ShellKind; label: string }[] = [
@@ -36,6 +37,8 @@ export function SessionList() {
         </span>
       </header>
 
+      <ProjectPicker />
+
       <section aria-labelledby="new-heading" className="new-shells">
         <h2 id="new-heading" className="eyebrow">New shell</h2>
         <div className="new-grid">
@@ -59,6 +62,7 @@ export function SessionList() {
                 <span className="status" data-status={status}>{status}</span>
                 <span className="session-name">
                   {s.shell} <span className="mono dim">{shortId(s.id)}</span>
+                  {s.project && <span className="project-tag" data-testid="session-project">{s.project}</span>}
                 </span>
                 <span className="row-actions">
                   {status === "RUNNING" && !open.has(s.id) && (

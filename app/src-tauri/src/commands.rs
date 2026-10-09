@@ -5,8 +5,8 @@ use crate::daemon::{Daemon, DaemonState};
 use crate::errors::invalid;
 use amiri_core::AmiriError;
 use amiri_ipc::protocol::{
-    methods, AnswerDecision, AnswerScope, PendingAsk, PolicyAnswerParams, SessionCreateParams,
-    SessionInfo,
+    methods, AnswerDecision, AnswerScope, PendingAsk, PolicyAnswerParams, ProjectInfo,
+    SessionCreateParams, SessionInfo,
 };
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -25,6 +25,9 @@ const MAX_SIZE: u16 = 1000;
 /// One keystroke burst or paste; larger pastes are split by the frontend.
 const MAX_INPUT_BYTES: usize = 64 * 1024;
 const MAX_ID_LEN: usize = 64;
+const MAX_PROJECT_NAME: usize = 40;
+/// A Windows path, generously.
+const MAX_PATH_LEN: usize = 32_767;
 
 fn valid_id(what: &str, id: &str) -> Res<()> {
     let ok = !id.is_empty()
@@ -34,6 +37,23 @@ fn valid_id(what: &str, id: &str) -> Res<()> {
         Ok(())
     } else {
         Err(invalid(what, format!("session id {id:?} is malformed")))
+    }
+}
+
+/// Same rules as the daemon's (project_handlers.rs); checked here for a clear error.
+fn valid_project_name(what: &str, name: &str) -> Res<()> {
+    let ok = !name.is_empty()
+        && name.len() <= MAX_PROJECT_NAME
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(
+            what,
+            format!("project name {name:?}: use letters, digits, '-' or '_'"),
+        ))
     }
 }
 
@@ -90,19 +110,22 @@ pub async fn session_create(
     kind: String,
     cols: u16,
     rows: u16,
+    project: Option<String>,
 ) -> Res<SessionInfo> {
     const WHAT: &str = "Open a shell";
     if !SHELL_KINDS.contains(&kind.as_str()) {
         return Err(invalid(WHAT, format!("unknown shell kind {kind:?}")));
     }
     valid_size(WHAT, cols, rows)?;
+    if let Some(p) = &project {
+        valid_project_name(WHAT, p)?;
+    }
     let params = SessionCreateParams {
         shell: json!({ "kind": kind }),
         cwd: None,
         cols,
         rows,
-        // The project picker arrives with Slice D's UI work.
-        project: None,
+        project,
     };
     // Creating a shell may ask (a policy rule); it must not block the control link.
     let v = daemon
@@ -177,6 +200,41 @@ pub async fn session_kill(daemon: DaemonRef<'_>, id: String) -> Res<()> {
         .map(|_| ())
 }
 
+#[tauri::command]
+pub async fn project_list(daemon: DaemonRef<'_>) -> Res<Vec<ProjectInfo>> {
+    const WHAT: &str = "List projects";
+    let v = daemon.call(WHAT, methods::PROJECT_LIST, json!({})).await?;
+    decode(WHAT, v)
+}
+
+/// The daemon checks that the folder exists; the policy may ask first.
+#[tauri::command]
+pub async fn project_add(daemon: DaemonRef<'_>, name: String, path: String) -> Res<ProjectInfo> {
+    const WHAT: &str = "Register the project";
+    valid_project_name(WHAT, &name)?;
+    if path.is_empty() || path.len() > MAX_PATH_LEN {
+        return Err(invalid(WHAT, "the folder path is empty or too long"));
+    }
+    let v = daemon
+        .call_gated(
+            WHAT,
+            methods::PROJECT_ADD,
+            json!({ "name": name, "path": path }),
+        )
+        .await?;
+    decode(WHAT, v)
+}
+
+#[tauri::command]
+pub async fn project_remove(daemon: DaemonRef<'_>, name: String) -> Res<()> {
+    const WHAT: &str = "Remove the project";
+    valid_project_name(WHAT, &name)?;
+    daemon
+        .call_gated(WHAT, methods::PROJECT_REMOVE, json!({ "name": name }))
+        .await
+        .map(|_| ())
+}
+
 /// Requests waiting for an answer (the approval panel).
 #[tauri::command]
 pub async fn policy_pending(daemon: DaemonRef<'_>) -> Res<Vec<PendingAsk>> {
@@ -241,6 +299,14 @@ mod tests {
         assert!(valid_id("x", "0199a6d2-7c1e-7b3a-9f00-123456789abc").is_ok());
         for bad in ["", "a b", "..\\x", "a/b", &"a".repeat(65)] {
             assert!(valid_id("x", bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn project_names_match_the_daemon_rules() {
+        assert!(valid_project_name("x", "web-api_2").is_ok());
+        for bad in ["", "a b", "проект", "x/y", &"a".repeat(41)] {
+            assert!(valid_project_name("x", bad).is_err(), "{bad:?}");
         }
     }
 
