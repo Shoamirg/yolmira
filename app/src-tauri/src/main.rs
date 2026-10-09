@@ -187,12 +187,16 @@ fn main() {
                 Some(dir) => window.data_directory(dir.into()),
                 None => window,
             };
+            let built = window.build()?;
+            // Windows ignores an off-screen position at creation; moving the built
+            // window works.
             #[cfg(debug_assertions)]
-            let window = match window_position() {
-                Some((x, y)) => window.position(x, y),
-                None => window,
-            };
-            window.build()?;
+            if let Some((x, y)) = window_position() {
+                built.set_position(tauri::LogicalPosition::new(x, y))?;
+                tracing::info!("window moved to {:?}", built.outer_position().ok());
+            }
+            #[cfg(not(debug_assertions))]
+            let _ = built;
             daemon::supervise(app.handle().clone(), for_setup);
             Ok(())
         })
