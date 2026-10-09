@@ -206,8 +206,10 @@ export class Ui {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${ui.debugPort}`,
       AMIRI_UI_WEBVIEW_DATA: ui.webviewData,
-      // AMIRI_E2E_OFFSCREEN=1: windows open beyond every monitor (not minimized).
-      ...(process.env.AMIRI_E2E_OFFSCREEN === "1" ? { AMIRI_UI_WINDOW_POSITION: OFFSCREEN } : {}),
+      // Windows open beyond every monitor (not minimized), so test runs don't pop up
+      // on the desktop: same results and timings as on-screen (docs/phase1/slice-c.md).
+      // AMIRI_E2E_ONSCREEN=1 shows them.
+      ...(process.env.AMIRI_E2E_ONSCREEN === "1" ? {} : { AMIRI_UI_WINDOW_POSITION: OFFSCREEN }),
     };
     if (opts.viaConsole) {
       ui.consolePid = await openConsole(env, [APP_EXE, ...instance.args()]);
