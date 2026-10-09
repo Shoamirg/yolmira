@@ -76,6 +76,8 @@ e2e("ui_close_reopen_shell_survives", async () => {
   const daemon = await instance.daemonPid();
 
   await ui.closeNormally();
+  // The UI says why it ended, even though Tauri ends the process from its event loop.
+  assert.match(instance.uiLog(), /UI exiting: the main window was closed/);
 
   assert.equal(await instance.daemonPid(), daemon, "the daemon outlives the window");
   assert.equal((await instance.shells()).find((s) => s.id === id)?.status, "RUNNING");
@@ -90,10 +92,13 @@ e2e("ui_killed_shell_survives", async () => {
   const daemon = await instance.daemonPid();
 
   await ui.kill();
+  const killedPid = ui.pid;
 
   assert.equal(await instance.daemonPid(), daemon, "the daemon outlives a killed UI");
   assert.equal((await instance.shells()).find((s) => s.id === id)?.status, "RUNNING");
   await reattachAndCheck(instance, id);
+  // A killed UI can't log; the next UI start reports it.
+  assert.match(instance.uiLog(), new RegExp(`earlier UI \\(pid ${killedPid}\\) ended without recording why`));
 });
 
 e2e("ui_started_from_closed_terminal", async () => {

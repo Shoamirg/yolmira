@@ -9,18 +9,31 @@ mod args;
 mod commands;
 mod daemon;
 mod errors;
+mod lifecycle;
 
 use amiri_core::AmiriError;
 use amiri_ipc::Instance;
 use daemon::Daemon;
+use lifecycle::RunMarker;
 use std::sync::Arc;
 use tauri::webview::NewWindowResponse;
-use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// Tests give each UI its own WebView2 data folder, so two windows get two browser
 /// processes (and two debugging ports). Read only by debug builds.
 #[cfg(debug_assertions)]
 const WEBVIEW_DATA_ENV: &str = "AMIRI_UI_WEBVIEW_DATA";
+/// Tests can place the window ("x,y", e.g. beyond every monitor so test windows
+/// don't pop up on a person's desktop). Read only by debug builds.
+#[cfg(debug_assertions)]
+const WINDOW_POSITION_ENV: &str = "AMIRI_UI_WINDOW_POSITION";
+
+#[cfg(debug_assertions)]
+fn window_position() -> Option<(f64, f64)> {
+    let v = std::env::var(WINDOW_POSITION_ENV).ok()?;
+    let (x, y) = v.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
 
 /// WebView2 configures itself from `WEBVIEW2_*` variables: browser arguments (e.g. an
 /// unauthenticated remote-debugging port, which can drive the session commands), the
@@ -56,22 +69,36 @@ fn resolve_instance() -> Result<Instance, AmiriError> {
     Instance::resolve(a.instance, a.home).map_err(|e| fail(e.to_string()))
 }
 
-/// Daily log files in the instance's log folder, next to the daemon's.
-fn init_logging(
-    instance: &Result<Instance, AmiriError>,
-) -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    let dir = instance.as_ref().ok()?.log_dir();
-    std::fs::create_dir_all(&dir).ok()?;
-    let (writer, guard) =
-        tracing_appender::non_blocking(tracing_appender::rolling::daily(dir, "ui.log"));
+/// Daily log files in the instance's log folder, next to the daemon's. Written
+/// without a buffer: Tauri ends the process from its event loop, so a buffered
+/// writer would lose the last lines, which say why the UI exited (lifecycle.rs).
+fn init_logging(instance: &Result<Instance, AmiriError>) {
+    let Some(dir) = instance.as_ref().ok().map(Instance::log_dir) else {
+        return;
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
     let filter = tracing_subscriber::EnvFilter::try_from_env("AMIRI_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_writer(writer)
+        .with_writer(tracing_appender::rolling::daily(dir, "ui.log"))
         .with_ansi(false)
         .init();
-    Some(guard)
+}
+
+/// Mark this UI as running (and report earlier ones that ended unrecorded).
+fn run_marker(instance: &Result<Instance, AmiriError>) -> RunMarker {
+    let dir = instance
+        .as_ref()
+        .ok()
+        .map(|i| i.home.join("run").join("ui"));
+    RunMarker::start(
+        dir.as_deref(),
+        lifecycle::current_process(),
+        lifecycle::is_alive,
+    )
 }
 
 /// The webview only ever shows the app's own pages: no navigation elsewhere (e.g. a
@@ -103,7 +130,13 @@ fn main() {
     #[cfg(not(debug_assertions))]
     drop_webview2_overrides();
     let instance = resolve_instance();
-    let log = init_logging(&instance);
+    init_logging(&instance);
+    tracing::info!(
+        "UI starting: pid {}, version {}",
+        std::process::id(),
+        env!("CARGO_PKG_VERSION")
+    );
+    let marker = run_marker(&instance);
     // A GUI program has no console: a panic would otherwise vanish without a trace.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -119,6 +152,10 @@ fn main() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 tracing::info!("window {} close requested", window.label());
+                lifecycle::set_exit_reason(format!(
+                    "the {} window was closed (close button, Alt+F4, the taskbar, or WM_CLOSE from another program)",
+                    window.label()
+                ));
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -146,20 +183,37 @@ fn main() {
                 Some(dir) => window.data_directory(dir.into()),
                 None => window,
             };
+            #[cfg(debug_assertions)]
+            let window = match window_position() {
+                Some((x, y)) => window.position(x, y),
+                None => window,
+            };
             window.build()?;
             daemon::supervise(app.handle().clone(), for_setup);
             Ok(())
         })
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        let err = AmiriError::new("Run the AMIRI UI", "ui", e.to_string())
-            .next_step("Check that the Microsoft Edge WebView2 Runtime is installed.")
-            .next_step("Run `amiri doctor`.");
-        tracing::error!("{err}");
-        drop(log); // flush the log before exiting
-        fatal(&err);
-        std::process::exit(1);
-    }
+        .build(tauri::generate_context!());
+    let app = match result {
+        Ok(app) => app,
+        Err(e) => {
+            let err = AmiriError::new("Run the AMIRI UI", "ui", e.to_string())
+                .next_step("Check that the Microsoft Edge WebView2 Runtime is installed.")
+                .next_step("Run `amiri doctor`.");
+            tracing::error!("{err}");
+            lifecycle::set_exit_reason(format!("failed to start: {}", err.why));
+            marker.exiting("failed to start");
+            fatal(&err);
+            std::process::exit(1);
+        }
+    };
+    // Tauri ends the process when this loop ends; the reason is logged first.
+    app.run(move |_, event| match event {
+        RunEvent::ExitRequested { code, .. } => {
+            lifecycle::set_exit_reason(format!("exit requested (code {code:?})"));
+        }
+        RunEvent::Exit => marker.exiting("the event loop ended"),
+        _ => {}
+    });
 }
 
 #[cfg(test)]

@@ -19,6 +19,8 @@ export const CLI_EXE = join(ROOT, "target", "debug", "amiri.exe");
 const DAEMON_EXE = join(ROOT, "target", "debug", "amirid.exe");
 /** WebDriver's Enter key (W3C key code point U+E007). */
 const KEY_ENTER = "\uE007";
+/** Where off-screen test windows open: beyond any monitor, but not minimized. */
+const OFFSCREEN = "-4000,-4000";
 /** How much of a UI process's own output the diagnostics keep. */
 const OUTPUT_TAIL = 4000;
 /** Upper bound for one WebDriver or devtools HTTP request. */
@@ -138,6 +140,18 @@ export class Instance {
       })
       .join("\n");
   }
+  /** Everything the instance's UIs logged (ui.log, all days). */
+  uiLog() {
+    const dir = join(this.home, "logs");
+    try {
+      return readdirSync(dir)
+        .filter((n) => n.startsWith("ui.log"))
+        .map((n) => readFileSync(join(dir, n), "utf8"))
+        .join("");
+    } catch {
+      return "";
+    }
+  }
   async dispose() {
     await this.cli("daemon", "stop");
     rmSync(this.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -192,6 +206,8 @@ export class Ui {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${ui.debugPort}`,
       AMIRI_UI_WEBVIEW_DATA: ui.webviewData,
+      // AMIRI_E2E_OFFSCREEN=1: windows open beyond every monitor (not minimized).
+      ...(process.env.AMIRI_E2E_OFFSCREEN === "1" ? { AMIRI_UI_WINDOW_POSITION: OFFSCREEN } : {}),
     };
     if (opts.viaConsole) {
       ui.consolePid = await openConsole(env, [APP_EXE, ...instance.args()]);
@@ -214,6 +230,9 @@ export class Ui {
     ui.session = s.value?.sessionId;
     if (!ui.session) throw new Error(`WebDriver session failed: ${JSON.stringify(s).slice(0, 500)}`);
     await waitFor("the frontend", () => ui.exec("return !!document.querySelector('.sidebar')"));
+    // A window WebView2 considers hidden may be throttled: record what the page sees.
+    const view = await ui.exec("return [document.visibilityState, window.screenX, window.screenY].join(' ')");
+    console.log(`# UI pid ${ui.pid}: visibility, screenX, screenY = ${view}`);
     return ui;
   }
 
