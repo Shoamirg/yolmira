@@ -429,9 +429,17 @@ export async function assertNoLeftovers(driverPort) {
   }
 }
 
-/** Newest modification time of the sources the binaries are built from. */
-function newestSource() {
-  const roots = ["app/src", "app/src-tauri/src", "app/index.html", "crates"].map((r) => join(ROOT, r));
+/** The sources each binary is built from. */
+const CRATES = ["crates"];
+const SOURCES = [
+  [APP_EXE, ["app/src", "app/src-tauri/src", "app/index.html", ...CRATES]],
+  [CLI_EXE, CRATES],
+  [DAEMON_EXE, CRATES],
+];
+
+/** Newest modification time among `roots` (relative to the repository). */
+function newestSource(roots) {
+  roots = roots.map((r) => join(ROOT, r));
   const exts = /\.(rs|ts|tsx|css|html|toml|sql)$/;
   let newest = { time: 0, file: "" };
   const visit = (path) => {
@@ -452,14 +460,14 @@ function newestSource() {
  * ignore-scripts silently skipped the pre-test build).
  */
 export function requireBuilt() {
-  const src = newestSource();
-  for (const exe of [APP_EXE, CLI_EXE, DAEMON_EXE]) {
+  for (const [exe, roots] of SOURCES) {
     if (!existsSync(exe)) throw new Error(`${exe} is missing: run \`npm run e2e\` (it builds first)`);
     const built = statSync(exe).mtimeMs;
-    console.log(`# ${exe.split(/[\\/]/).pop()} built ${new Date(built).toISOString()}`);
+    const src = newestSource(roots);
+    const name = exe.split(/[\\/]/).pop();
+    console.log(`# ${name} built ${new Date(built).toISOString()}; newest source ${new Date(src.time).toISOString()}`);
     if (built < src.time) {
       throw new Error(`${exe} is older than ${src.file} (${new Date(src.time).toISOString()}): run \`npm run e2e\` (it builds first)`);
     }
   }
-  console.log(`# newest source ${new Date(src.time).toISOString()} ${src.file}`);
 }
