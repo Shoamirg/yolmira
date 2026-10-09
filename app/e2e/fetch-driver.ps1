@@ -9,6 +9,8 @@ $ErrorActionPreference = 'Stop'
 $Pinned = @{
     # version          = SHA-256 of edgedriver_win64.zip (recorded 2026-10-05)
     '154.0.4258.53' = '16ACCCCA3DD71DA28348A5A6852B9FA681D1F177F758339EABACFBD3CAC8D72B'
+    # recorded 2026-10-09 (WebView2 updated itself); signature Valid, O=Microsoft Corporation
+    '154.0.4258.62' = 'C99F91B608E165831251DBD01245996BCF9FDE3932D56BD39BED297C1407B42E'
 }
 
 function Get-WebView2Version {
