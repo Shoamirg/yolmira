@@ -74,6 +74,15 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
    Every page reported `document.visibilityState = visible` off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default (`6685a08`); `AMIRI_E2E_ONSCREEN=1` shows the windows. The console window of `ui_started_from_closed_terminal` still appears briefly.
 4. **WebView2 updated itself** (154.0.4258.53 → .62) between runs; the harness stopped with the planned message, and the matching driver was pinned (`7419ae6`: zip SHA-256 recorded, signature Valid, O=Microsoft Corporation).
 5. **CI did not run** for `53f7739` (run 37928451747): GitHub refused to start the job over the account's billing ("recent account payments have failed or your spending limit needs to be increased"). Not a code failure; rerun once billing is fixed.
+6. **Which Slice C runs could have used stale binaries** (the npm `ignore-scripts` bug above). `app/.npmrc` existed from the first Slice C commit (`54f0dde`), so no `npm run e2e` in Slice C rebuilt anything. The UI binary is what changed in Slice C; the daemon and CLI were current throughout (Slice C didn't touch `crates/`, and `scripts/test.ps1` rebuilt them).
+
+   | Runs (2026-10-05) | UI binary | Verdict |
+   |---|---|---|
+   | First runs on `54f0dde`/`86e7be9`, and the run on `9fce2ca` (review fixes) that showed one frame of RUNNING for a dead shell (twice) | Built 18:42, before the last Slice C edits and before every review fix | **Superseded.** Stale; this most likely explains the "cause not found" one-frame RUNNING noted under Open (it never recurred once the UI was rebuilt) |
+   | 12 single runs of `daemon_down_banner_and_reconnect`, 2 full runs of 6/6 (the "Recorded runs" above) | Rebuilt by hand (`npm run build:app`) while debugging the failure above, from the reviewed source | Fresh. These were the acceptance evidence |
+   | 2026-10-06 run on `53f7739` | Stale (last manual build before it) | **Superseded** (it also had windows closed by hand) |
+
+   **Rerun on a fresh build, 2026-10-09, `ab2467d`** (the `e2e` script now builds, and the harness refuses binaries older than their sources): **6/6 pass**, 36.9 s (close/reopen 2.83 s, killed UI 2.12 s, closed console 4.89 s, two UIs 1.64 s, daemon down 2.69 s, flood 15.63 s). This confirms Slice C on current code; the one-frame RUNNING failure is now also impossible by design (status.ts) and covered by the frame-recording test.
 
 ## Plan deviations
 
@@ -82,7 +91,7 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
 
 ## Open
 
-- **`daemon_down_banner_and_reconnect` failed twice** (the full run on `9fce2ca`'s first build, and once more alone on the same binary): exactly one rendered frame, right after the reconnect, showed the dead shell RUNNING; the next frame (1 ms later) showed EXITED. The daemon itself lists the shell as EXITED immediately after a restart (checked with the CLI), and the store trace on a rebuilt binary showed the intended order (connected with no fresh list → UNKNOWN → EXITED). After rebuilding from the same source: 14 runs, no failure. Cause not found. The test now prints the full rendered trail on failure, so the next occurrence says which state produced it.
+- **Superseded (2026-10-09), see "After acceptance" item 6: those runs used a stale UI build.** Original note: **`daemon_down_banner_and_reconnect` failed twice** (the full run on `9fce2ca`'s first build, and once more alone on the same binary): exactly one rendered frame, right after the reconnect, showed the dead shell RUNNING; the next frame (1 ms later) showed EXITED. The daemon itself lists the shell as EXITED immediately after a restart (checked with the CLI), and the store trace on a rebuilt binary showed the intended order (connected with no fresh list → UNKNOWN → EXITED). After rebuilding from the same source: 14 runs, no failure. Cause not found. The test now prints the full rendered trail on failure, so the next occurrence says which state produced it.
 - **`pty` (Slice B) failed once in 11 runs**: in `scripts/test.ps1` right after an E2E run, the binary hung ~140 s and failed; the failing test's output wasn't kept. 8 runs of the binary alone and two more full runs were clean. Not reproduced; the next `test.ps1` failure should keep the full log.
 - Replay at the default size for background reattaches (finding 4): fit hidden panes before attaching, or send the real size with the attach.
 - Kill has no confirmation step; the Detach button sits inside the tablist; xterm keeps Tab, so keyboard users can't leave a terminal with Tab (needs a documented escape key).

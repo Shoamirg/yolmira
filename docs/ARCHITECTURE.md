@@ -660,6 +660,7 @@ Workspace skeleton; `amirid` + named-pipe IPC + Tauri UI; local terminal (PowerS
 Exit: PTY integration suite green; UI closes and reopens while a local shell keeps running under `amirid`; the event log shows all actions.
 
 **Phase 2 — Claude Code**
+Starts with spike **S7, agents at low integrity** (R14): run `claude -p` and its tool commands with a low-integrity token. Record what breaks: writing `~/.claude`, the project folder, `%TEMP%`, the network; which folders need a low-integrity label; whether UIPI then blocks it from the AMIRI window, and the pipe refuses it. Decide containment from the result: low integrity for agents, or a named residual risk.
 Detection and version range; structured adapter; PTY "open interactively" with session lock; permission requests → Policy Engine; session persistence, resume, pause, archive, export (with redaction).
 Exit: fixture + fake-CLI tests green; live contract test green; AMIRI restart during a task → session shows UNKNOWN → reconciles → resumes via `--resume` with no lost history.
 
@@ -741,8 +742,19 @@ What the design still rests on without proof, after S0–S2, S4 and S5. Each ris
 | R11 | **Codex skills format** compatibility with `SKILL.md`. | Skills shared across providers (§12) | Phase 7 |
 | R12 | **Unsigned `AMIRI.exe` that spawns shells and agents** may be flagged by SmartScreen or Defender. | Installation and first run (Phase 10) | Phase 10, together with the code-signing decision (§17 Q9) |
 | R13 | **User's Claude Code config inside orchestrated sessions.** Without `--safe-mode`, the user's hooks, plugins and settings load in AMIRI-launched sessions. Whether hooks run in `-p` mode is itself unverified. | Predictable agent behaviour and policy (§6); AMIRI never relies on hooks for enforcement | Phase 2: test which settings load, and limit `--setting-sources` (S2's suggested alternative) if they interfere |
+| R14 | **Same-user processes can drive the UI.** Any process running as the user can send input to AMIRI's window and read its text (UI Automation, `SendInput`, window messages), so an agent could read an approval code off the screen or click Allow, without escaping its Job Object. The Slice D defences (approvals refused from inside an agent job; CLI approval needs a one-time code shown only in the UI) don't cover this. | Every approval (§6.3), and anything else the UI can do for the user | Spike **S7** at the start of Phase 2: run agents at **low integrity**. UIPI blocks low-integrity processes from driving medium-integrity windows, and the pipe already rejects them (§6.5). Open: whether Claude Code works at low integrity (it needs to write its config, the project and temp folders) |
 
 Not load-bearing, left unverified: the Obsidian Local REST API serving MCP (§2). The design doesn't use it.
+
+### 16.5 Proposals awaiting review (2026-10-09)
+Recorded as requirements, not yet designed in detail; neither changes Slice D. `docs/decisions.md` lists them under "Proposed, awaiting review".
+
+**Cross-project knowledge (Phases 6 and 7).** One Obsidian vault with a folder per project and a shared `Skills/` folder. Wikilinks may cross projects. AMIRI's search covers every project and ranks the current project first. The UI gets a graph view of projects, sessions, decisions, skills and the links between them. Agents read other projects' notes only when the task needs it, and by default write only to their own project's folder (enforced like the vault zones of §11, not by prompt).
+
+**Admin PowerShell.**
+- **Step 1 (after Slice D):** an "Open admin PowerShell" action. It triggers UAC and opens a separate elevated window that AMIRI neither controls nor connects to; AMIRI only logs that it was opened (a `system.elevate` event, always ASK per §6.3).
+- **Step 2 (deferred until agents run at low integrity, R14/S7):** admin tabs embedded in the UI: for people only, UAC per tab, clearly marked, closed automatically when idle, never reachable by agents or the orchestrator.
+- **Why embedding now is rejected:** input to an embedded elevated shell would pass through the medium-integrity daemon. Any same-user process, agents included, could then send it commands and so get elevated execution without a UAC prompt: a UAC bypass. Until agents can't reach the daemon or the UI (low integrity), only a window AMIRI doesn't control is safe.
 
 ---
 
