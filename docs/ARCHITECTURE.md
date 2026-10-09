@@ -751,6 +751,12 @@ Recorded as requirements, not yet designed in detail; neither changes Slice D. `
 
 **Cross-project knowledge (Phases 6 and 7).** One Obsidian vault with a folder per project and a shared `Skills/` folder. Wikilinks may cross projects. AMIRI's search covers every project and ranks the current project first. The UI gets a graph view of projects, sessions, decisions, skills and the links between them. Agents read other projects' notes only when the task needs it, and by default write only to their own project's folder (enforced like the vault zones of §11, not by prompt).
 
+**Team mode (after Phase 8).** Several people work on one project, each running their own AMIRI with their own provider accounts (Claude, Codex, and Gemini if approved). Accounts never leave their owner's machine (§6.4).
+- **Shared state, not shared sessions.** People share project state: tasks, handoff packets, decisions, evidence and skills. Git carries it first (`.amiri/` files, per-person agent branches). An optional self-hosted hub can add live updates later.
+- **Rules:** every task has an owner person and an assigned agent; approvals come from the task's owner; file claims stop two agents from editing the same files; a handoff between people reuses the handoff packet (§8).
+- **Done now (Slice D), so team mode needs no data migration:** identity is person-aware. Every event records `person_id` (the person it acts for: a stable id per AMIRI install, with a display name) and `agent_id` (the agent that did it, if any). Approvals record who requested and who answered. Tasks (Phase 5) are created with the same two fields.
+- **Open (user):** will team members be on the same local network or remote? This decides whether the hub is LAN-only or needs internet exposure and auth.
+
 **Admin PowerShell.**
 - **Step 1 (after Slice D):** an "Open admin PowerShell" action. It triggers UAC and opens a separate elevated window that AMIRI neither controls nor connects to; AMIRI only logs that it was opened (a `system.elevate` event, always ASK per §6.3).
 - **Step 2 (deferred until agents run at low integrity, R14/S7):** admin tabs embedded in the UI: for people only, UAC per tab, clearly marked, closed automatically when idle, never reachable by agents or the orchestrator.

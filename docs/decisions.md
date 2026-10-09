@@ -51,6 +51,8 @@ Answers to ARCHITECTURE.md §17, recorded as `USER_DECISION`s.
 
 ## Proposed, awaiting review
 
+**2026-10-09: team mode (after Phase 8).** Several people on one project, each with their own AMIRI and their own provider accounts; accounts never leave their owner's machine. Collaboration through shared project state (tasks, handoff packets, decisions, evidence, skills) via Git first (`.amiri/` files, per-person agent branches), an optional self-hosted hub later. Every task has an owner person and an assigned agent; approvals come from the task owner; file claims prevent two agents editing the same files; cross-person handoffs reuse the handoff packet. **Done in Slice D:** person-aware identity (person ID + agent ID) in events and approvals, and the rule for tasks, so no migration is needed later. See ARCHITECTURE §16.5.
+
 **2026-10-09: cross-project knowledge (Phases 6/7).** One vault with a folder per project plus a shared `Skills/` folder; cross-project wikilinks; AMIRI search across all projects with the current project ranked first; a graph view in the UI (projects, sessions, decisions, skills, links). Agents read other projects' notes only when the task needs it, and write only to their own project's folder by default. See ARCHITECTURE §16.5. No change to Slice D.
 
 **2026-10-09: admin PowerShell.** Step 1 (after Slice D): an "Open admin PowerShell" action that triggers UAC and opens a separate elevated window AMIRI doesn't control or connect to; AMIRI logs that it was opened. Step 2 (deferred until agents run at low integrity, R14/S7): embedded admin tabs, people only, UAC per tab, clearly marked, idle auto-close, never reachable by agents or the orchestrator. **Rejected for now: embedding.** Input to an elevated shell routed through the medium-integrity daemon would let any same-user process, agents included, bypass UAC. See ARCHITECTURE §16.5.
@@ -77,6 +79,7 @@ What changes if approved:
 ## Still open
 
 - Q10 `amiri-sessiond` — deferred (§17 Q10)
+- Team mode: will team members be on the same local network, or remote? (Decides the hub's exposure and authentication.)
 
 - Q5 default `plan_approval` (recommended: ASK)
 - Q6 reviewer must be a different provider, or only a different session
