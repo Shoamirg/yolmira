@@ -148,19 +148,25 @@ fn events_persist_across_restart() {
     env.wait_until("daemon stopped", Duration::from_secs(10), || {
         env.running_pid().is_none()
     });
-    let first_run: Vec<_> = env.events().into_iter().take(3).collect();
+    let first_run: Vec<_> = env.events().into_iter().take(4).collect();
     let kinds: Vec<_> = first_run
         .iter()
         .map(|e| e["kind"].as_str().unwrap_or_default())
         .collect();
+    // Stopping goes through the policy gate (Slice D): its decision is logged first.
     assert_eq!(
         kinds,
-        vec!["daemon.started", "daemon.stopping", "daemon.stopped"]
+        vec![
+            "daemon.started",
+            "policy.decision",
+            "daemon.stopping",
+            "daemon.stopped"
+        ]
     );
     // `events` restarted the daemon; the first run's events are unchanged, in order.
     let after_restart = env.events();
-    assert_eq!(&after_restart[..3], &first_run[..]);
-    assert_eq!(after_restart[3]["kind"], "daemon.started");
+    assert_eq!(&after_restart[..4], &first_run[..]);
+    assert_eq!(after_restart[4]["kind"], "daemon.started");
     assert!(after_restart
         .windows(2)
         .all(|w| w[0]["seq"].as_i64() < w[1]["seq"].as_i64()));

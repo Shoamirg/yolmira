@@ -13,10 +13,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 /// The UI the daemon trusts: `amiri-app.exe` next to `amirid.exe`.
 const UI_EXE: &str = "amiri-app.exe";
-/// Debug builds only: a test may name its own executable as the trusted UI (tests
-/// can't run as amiri-app.exe). Release builds ignore it.
+/// Debug builds only: a test may name its own executable as the trusted UI in this
+/// file of the instance's config folder (tests can't run as amiri-app.exe). A file,
+/// not a variable: the daemon's environment is an allowlist. Release builds ignore it.
 #[cfg(debug_assertions)]
-const TEST_TRUSTED_UI_ENV: &str = "AMIRI_TEST_TRUSTED_UI";
+pub const TEST_TRUSTED_UI_FILE: &str = "debug-trusted-ui.txt";
 
 /// The client process of one connection. The handle is opened as soon as the client
 /// connects and held, so a reused pid can't be mistaken for it later.
@@ -89,22 +90,25 @@ impl AgentJobs {
 
 /// The genuine UI: the expected executable and not inside an agent job (an agent
 /// could start the UI binary itself; it would run inside the agent's job).
-pub fn is_trusted_ui(peer: &Peer, jobs: &AgentJobs) -> bool {
+pub fn is_trusted_ui(peer: &Peer, jobs: &AgentJobs, config_dir: &Path) -> bool {
     let Some(image) = peer.image() else {
         return false;
     };
-    !jobs.contains(peer) && trusted_ui_paths().iter().any(|p| same_path(p, image))
+    !jobs.contains(peer)
+        && trusted_ui_paths(config_dir)
+            .iter()
+            .any(|p| same_path(p, image))
 }
 
-fn trusted_ui_paths() -> Vec<PathBuf> {
+fn trusted_ui_paths(_config_dir: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = std::env::current_exe()
         .ok()
         .map(|daemon| daemon.with_file_name(UI_EXE))
         .into_iter()
         .collect();
     #[cfg(debug_assertions)]
-    if let Some(test) = std::env::var_os(TEST_TRUSTED_UI_ENV) {
-        paths.push(PathBuf::from(test));
+    if let Ok(test) = std::fs::read_to_string(_config_dir.join(TEST_TRUSTED_UI_FILE)) {
+        paths.push(PathBuf::from(test.trim()));
     }
     paths
 }
@@ -123,7 +127,7 @@ mod tests {
         let jobs = AgentJobs::default();
         let peer = Peer::unknown();
         assert!(jobs.contains(&peer));
-        assert!(!is_trusted_ui(&peer, &jobs));
+        assert!(!is_trusted_ui(&peer, &jobs, Path::new(".")));
     }
 
     #[test]

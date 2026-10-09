@@ -15,13 +15,20 @@ use support::*;
 const KILL_ASKS: &str = "[global]\n\"session.kill\" = \"ask\"\n\"daemon.stop\" = \"allow\"\n";
 const STEP: Duration = Duration::from_secs(30);
 
-/// A daemon that treats this test binary as the AMIRI UI (debug builds only), so the
-/// test can play the UI: answer without a code and read codes.
+/// A daemon that treats this test binary as the AMIRI UI (debug builds only, via a
+/// file in the instance's own config folder), so the test can play the UI: answer
+/// without a code and read codes.
 fn env_with_test_ui() -> TestEnv {
     let env = TestEnv::new();
     env.write_policies(KILL_ASKS);
     let me = std::env::current_exe().expect("test exe");
-    env.start_with_env(&[("AMIRI_TEST_TRUSTED_UI", me.to_str().expect("utf-8 path"))]);
+    let config = env.instance().config_dir();
+    std::fs::write(
+        config.join("debug-trusted-ui.txt"),
+        me.to_string_lossy().as_bytes(),
+    )
+    .expect("trusted UI file");
+    env.start();
     env
 }
 

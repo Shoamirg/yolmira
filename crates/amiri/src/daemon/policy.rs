@@ -302,7 +302,7 @@ pub fn code(
             "Approve in the AMIRI window.",
         ));
     }
-    if !is_trusted_ui(peer, &state.agent_jobs) {
+    if !is_trusted_ui(peer, &state.agent_jobs, &state.instance.config_dir()) {
         record_refusal(state, client, peer, &p.id, "not_the_ui");
         return Err(forbidden(
             WHAT,
@@ -339,7 +339,7 @@ pub fn answer(
             "Approve in the AMIRI window.",
         ));
     }
-    let trusted_ui = is_trusted_ui(peer, &state.agent_jobs);
+    let trusted_ui = is_trusted_ui(peer, &state.agent_jobs, &state.instance.config_dir());
     let mut waiting = lock(&state.policy.waiting);
     let entry = waiting.get_mut(&p.id).ok_or_else(|| not_waiting(&p.id))?;
     if !trusted_ui {
