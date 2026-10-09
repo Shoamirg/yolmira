@@ -3,7 +3,8 @@
 //! version.
 
 use super::agents::{self, AgentFact};
-use super::{DaemonFact, DbFact, Facts};
+use super::{ConfigFact, DaemonFact, DbFact, Facts};
+use crate::config_files::{self, ConfigFile};
 use amiri_ipc::protocol::{methods, SessionInfo};
 use amiri_ipc::win::env::{build_child_env, registry_dword, registry_string, EnvSource};
 use amiri_ipc::win::security::{
@@ -34,21 +35,28 @@ pub async fn gather(instance: &Instance) -> Facts {
         .find(|(k, _)| k == "PATH")
         .map(|(_, v)| v.clone())
         .unwrap_or_default();
-    let agents = agents::load(&instance.config_dir()).map(|specs| {
-        specs
-            .into_iter()
-            .map(|spec| {
-                let probe = agents::probe(&spec, &path_var, &child_env);
-                AgentFact { spec, probe }
-            })
-            .collect()
-    });
+    let config = config_facts(instance);
+    let agents = config
+        .iter()
+        .find(|c| c.file == ConfigFile::Agents)
+        .ok_or_else(|| "agents.toml state unknown".to_string())
+        .and_then(|c| config_files::guarded_agents(c.confirmed.as_deref(), c.current.as_deref()))
+        .map(|(specs, _)| {
+            specs
+                .into_iter()
+                .map(|spec| {
+                    let probe = agents::probe(&spec, &path_var, &child_env);
+                    AgentFact { spec, probe }
+                })
+                .collect()
+        });
     Facts {
         daemon: daemon(instance).await,
         db: database(instance),
         elevated: is_elevated().ok(),
         enable_lua: registry_dword(true, UAC_KEY, "EnableLUA").ok().flatten(),
         agents,
+        config,
         webview2: webview2(),
         env,
     }
@@ -115,6 +123,39 @@ fn database(instance: &Instance) -> DbFact {
         Ok(i) => DbFact::Inspected(i),
         Err(e) => DbFact::Unreadable(e.to_string()),
     }
+}
+
+/// Each guarded file's confirmed text (from the event log, read-only) and current
+/// text. Never confirmed yet: the daemon trusts the file on its first start, so the
+/// current text counts as confirmed.
+fn config_facts(instance: &Instance) -> Vec<ConfigFact> {
+    let events =
+        Store::read_events(&instance.db_path(), config_files::ACCEPTED_KIND).unwrap_or_default();
+    ConfigFile::ALL
+        .into_iter()
+        .map(|file| {
+            let current = file.read(&instance.config_dir());
+            let current = match current {
+                Ok(c) => c,
+                Err(e) => {
+                    return ConfigFact {
+                        file,
+                        confirmed: None,
+                        current: None,
+                        unreadable: Some(e),
+                    }
+                }
+            };
+            let confirmed =
+                config_files::confirmed_in(&events, file).unwrap_or_else(|| current.clone());
+            ConfigFact {
+                file,
+                confirmed,
+                current,
+                unreadable: None,
+            }
+        })
+        .collect()
 }
 
 fn webview2() -> Option<String> {

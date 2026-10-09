@@ -14,8 +14,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod compare;
 #[cfg(test)]
 mod tests;
+
+pub use compare::Loosening;
 
 /// The typed actions Phase 1 checks, and the hard-classified ones listed ahead of
 /// the features that will use them.

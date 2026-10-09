@@ -21,6 +21,7 @@ fn healthy() -> Facts {
         elevated: Some(false),
         enable_lua: Some(1),
         agents: Ok(vec![]),
+        config: vec![],
         webview2: Some("154.0.4258.62".into()),
     }
 }
@@ -153,6 +154,24 @@ fn an_impostor_pipe_and_missing_webview2_fail() {
     });
     reported(find(&c, "daemon"), Status::Fail);
     reported(find(&c, "webview2"), Status::Fail);
+}
+
+#[test]
+fn an_unconfirmed_loosening_edit_warns_and_names_it() {
+    let c = checks(&Facts {
+        config: vec![ConfigFact {
+            file: ConfigFile::Policies,
+            confirmed: Some("[global]\n\"session.kill\" = \"allow\"\n".into()),
+            current: Some(
+                "[global]\n\"session.kill\" = \"allow\"\n\"daemon.stop\" = \"allow\"\n".into(),
+            ),
+            unreadable: None,
+        }],
+        ..healthy()
+    });
+    let check = find(&c, "config_policies");
+    reported(check, Status::Warn);
+    assert!(check.detail.contains("daemon.stop"), "{check:?}");
 }
 
 #[test]

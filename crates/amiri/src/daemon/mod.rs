@@ -3,6 +3,7 @@
 //! pipe → serve.
 
 mod auth;
+mod config_guard;
 mod console;
 mod handlers;
 mod peer;
@@ -167,6 +168,21 @@ fn run(instance: Instance, elevated: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// How often the config files are looked at between policy checks, so a loosening
+/// edit shows up for confirmation (and in the log) without waiting for a request.
+const CONFIG_POLL: Duration = Duration::from_secs(2);
+
+async fn watch_config(state: Arc<State>) {
+    let mut tick = tokio::time::interval(CONFIG_POLL);
+    loop {
+        tick.tick().await;
+        let s = Arc::clone(&state);
+        if let Err(e) = tokio::task::spawn_blocking(move || s.config.refresh_all(&s)).await {
+            tracing::warn!(error = %e, "config check failed");
+        }
+    }
+}
+
 async fn serve_until_stopped(state: Arc<State>, started: serde_json::Value) -> Result<(), String> {
     let (stop_tx, mut stop_rx) = tokio::sync::mpsc::unbounded_channel();
     shutdown::install(stop_tx);
@@ -179,6 +195,9 @@ async fn serve_until_stopped(state: Arc<State>, started: serde_json::Value) -> R
         .record(NewEvent::new(kinds::DAEMON_STARTED, actors::AMIRI, started))
         .map_err(|e| e.to_string())?;
     let stale = sessions::reconcile(&state).map_err(|e| e.to_string())?;
+    // Before serving: the confirmed config versions, and any edit made meanwhile.
+    state.config.bootstrap(&state);
+    let watcher = tokio::spawn(watch_config(Arc::clone(&state)));
     if stale > 0 {
         tracing::info!(stale, "marked sessions from the previous daemon as exited");
     }
@@ -189,6 +208,7 @@ async fn serve_until_stopped(state: Arc<State>, started: serde_json::Value) -> R
         .await
         .unwrap_or_else(|| "channel_closed".into());
     server.abort();
+    watcher.abort();
     // Shells die with the daemon anyway (D3); ending them here records their exits.
     let for_kill = Arc::clone(&state);
     if let Err(e) =

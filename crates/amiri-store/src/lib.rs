@@ -174,6 +174,20 @@ impl Store {
         })
     }
 
+    /// Events of one kind prefix, read without changing anything (no migration), for
+    /// `amiri doctor`. Oldest first.
+    pub fn read_events(path: &Path, kind_prefix: &str) -> Result<Vec<Event>> {
+        use rusqlite::OpenFlags;
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut stmt = conn.prepare(
+            "SELECT seq, id, ts, kind, actor, session_id, payload, person_id, agent_id, install_id
+             FROM events WHERE substr(kind, 1, length(?1)) = ?1 ORDER BY seq",
+        )?;
+        let rows = stmt.query_map(params![kind_prefix], RawEvent::from_row)?;
+        rows.map(|r| r.map_err(StoreError::from).and_then(RawEvent::into_event))
+            .collect()
+    }
+
     /// `PRAGMA integrity_check` result; `"ok"` when healthy.
     pub fn integrity_check(&self) -> Result<String> {
         Ok(self

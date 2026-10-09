@@ -104,6 +104,13 @@ pub mod kinds {
     pub const POLICY_ANSWER_REFUSED: &str = "policy.answer_refused";
     /// Every policy verdict, automatic or answered (ARCHITECTURE §6.3).
     pub const POLICY_DECISION: &str = "policy.decision";
+    /// policies.toml or agents.toml changed on disk: the diff, and whether it loosens.
+    pub const POLICY_CONFIG_CHANGED: &str = "policy.config_changed";
+    /// A version of a config file is in force (first start, tightening, or confirmed),
+    /// with its full content.
+    pub const POLICY_CONFIG_ACCEPTED: &str = "policy.config_accepted";
+    /// A person declined a loosening edit; the confirmed version stays in force.
+    pub const POLICY_CONFIG_REJECTED: &str = "policy.config_rejected";
 }
 
 /// Actors (§7.2 `actor`).

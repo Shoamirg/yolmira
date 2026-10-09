@@ -351,3 +351,198 @@ fn project_shell_starts_in_repo() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("project"));
 }
+
+/// policies.toml where kills are allowed and stopping the daemon asks (the default).
+const STOP_ASKS: &str = "[global]\n\"session.kill\" = \"allow\"\n";
+const STOP_ALLOWED: &str = "[global]\n\"session.kill\" = \"allow\"\n\"daemon.stop\" = \"allow\"\n";
+
+/// Run a program inside a new agent job (debug builds) and wait for it to end.
+async fn as_agent(ui: &mut amiri_ipc::Client, exe: &str, args: Vec<String>) -> u32 {
+    let spawned: Value = ui
+        .call(
+            "debug.spawn_in_agent_job",
+            json!({ "exe": exe, "args": args }),
+        )
+        .await
+        .expect("debug builds can spawn into an agent job");
+    let pid = spawned["pid"].as_u64().expect("pid") as u32;
+    if let Ok(w) = amiri_ipc::win::process::ProcessWatch::open(pid) {
+        let _ = w.wait(STEP);
+    }
+    pid
+}
+
+async fn pending(ui: &mut amiri_ipc::Client) -> Vec<PendingAsk> {
+    ui.call(methods::POLICY_PENDING, json!({})).await.unwrap()
+}
+
+/// The reviewer's case (2026-10-09): an agent edits policies.toml to allow
+/// daemon.stop. The edit is logged with its diff and doesn't apply: stopping still
+/// asks; the agent can't confirm its own edit, even with the code; once a person
+/// confirms it, it applies.
+#[test]
+fn agent_edit_allowing_daemon_stop_still_asks() {
+    let env = TestEnv::new();
+    env.write_policies(STOP_ASKS);
+    let me = std::env::current_exe().unwrap();
+    let config = env.instance().config_dir();
+    std::fs::write(
+        config.join("debug-trusted-ui.txt"),
+        me.to_string_lossy().as_bytes(),
+    )
+    .unwrap();
+    env.start();
+    let edited = env.home().join("edited-policies.toml");
+    std::fs::write(&edited, STOP_ALLOWED).unwrap();
+    let policies = env.instance().policies_path();
+    env.block_on(Duration::from_secs(120), async {
+        let mut ui = env.client().await;
+        // The agent overwrites the file.
+        let cmd = r"C:\Windows\System32\cmd.exe".to_string();
+        let copy = vec![
+            "/d".to_string(),
+            "/c".to_string(),
+            "copy".to_string(),
+            "/y".to_string(),
+            edited.display().to_string(),
+            policies.display().to_string(),
+        ];
+        as_agent(&mut ui, &cmd, copy).await;
+        assert_eq!(
+            std::fs::read_to_string(&policies).unwrap(),
+            STOP_ALLOWED,
+            "the agent's edit is on disk"
+        );
+
+        // Stopping still asks.
+        let mut requester = env.client().await;
+        let stop = tokio::spawn(async move {
+            requester
+                .call_value_within(methods::DAEMON_STOP, json!({}), ASK_LIMIT)
+                .await
+        });
+        let deadline = std::time::Instant::now() + STEP;
+        let (confirm, stop_ask) = loop {
+            let p = pending(&mut ui).await;
+            let confirm = p.iter().find(|a| a.action == "config.policies").cloned();
+            let stop_ask = p.iter().find(|a| a.action == "daemon.stop").cloned();
+            if let (Some(c), Some(s)) = (confirm, stop_ask) {
+                break (c, s);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no confirmation and stop ask: {p:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        assert!(confirm.detail["diff"]
+            .as_str()
+            .unwrap()
+            .contains("+\"daemon.stop\" = \"allow\""));
+
+        // The agent tries to confirm its own edit with the right code: refused.
+        let code: Value = ui
+            .call(methods::POLICY_CODE, json!({ "id": confirm.id }))
+            .await
+            .unwrap();
+        let args = env.amiri_args(&[
+            "approve",
+            &confirm.id,
+            "--code",
+            code["code"].as_str().unwrap(),
+        ]);
+        as_agent(&mut ui, AMIRI, args).await;
+        assert!(
+            pending(&mut ui).await.iter().any(|a| a.id == confirm.id),
+            "still unconfirmed"
+        );
+
+        // A person denies the stop: the daemon keeps running.
+        ui.call_value(
+            methods::POLICY_ANSWER,
+            json!({ "id": stop_ask.id, "decision": "deny" }),
+        )
+        .await
+        .unwrap();
+        match stop.await.unwrap() {
+            Err(ClientError::Rpc(e)) => assert_eq!(e.code, codes::POLICY_DENIED),
+            other => panic!("the stop must still need approval: {other:?}"),
+        }
+        // A person confirms the edit in the UI: now stopping is allowed outright.
+        ui.call_value(
+            methods::POLICY_ANSWER,
+            json!({ "id": confirm.id, "decision": "allow" }),
+        )
+        .await
+        .unwrap();
+        let mut c = env.client().await;
+        c.call_value(methods::DAEMON_STOP, json!({}))
+            .await
+            .expect("allowed once confirmed");
+    });
+    env.wait_until("daemon stopped", Duration::from_secs(10), || {
+        env.running_pid().is_none()
+    });
+    let events = env.events();
+    let changed: Vec<_> = events
+        .iter()
+        .filter(|e| e["kind"] == "policy.config_changed")
+        .collect();
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0]["payload"]["applied"], false);
+    assert!(changed[0]["payload"]["diff"]
+        .as_str()
+        .unwrap()
+        .contains("daemon.stop"));
+    let refused: Vec<_> = events
+        .iter()
+        .filter(|e| e["kind"] == "policy.answer_refused")
+        .collect();
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0]["payload"]["reason"], "agent_job");
+    let accepted: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["kind"] == "policy.config_accepted" && e["payload"]["file"] == "policies.toml"
+        })
+        .map(|e| e["payload"]["reason"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(accepted.len(), 2, "{accepted:?}");
+    assert!(accepted[0].starts_with("first start"));
+    assert!(accepted[1].starts_with("confirmed by"));
+}
+
+/// An edit that only tightens applies at once (and is logged with its diff).
+#[test]
+fn tightening_edit_applies_at_once() {
+    let env = TestEnv::new();
+    env.start();
+    env.block_on(Duration::from_secs(60), async {
+        let shell = new_cmd(&env).await;
+        let tight = format!("{TEST_POLICIES}\"session.create\" = \"ask\"\n").replace(
+            "\"session.kill\" = \"allow\"",
+            "\"session.kill\" = \"deny\"",
+        );
+        env.write_policies(&tight);
+        let mut c = env.client().await;
+        match c
+            .call_value(methods::SESSION_KILL, json!({ "id": shell.id }))
+            .await
+        {
+            Err(ClientError::Rpc(e)) => assert_eq!(e.code, codes::POLICY_DENIED),
+            other => panic!("the tightened rule must apply at once: {other:?}"),
+        }
+    });
+    let reasons: Vec<String> = env
+        .events()
+        .iter()
+        .filter(|e| {
+            e["kind"] == "policy.config_accepted" && e["payload"]["file"] == "policies.toml"
+        })
+        .map(|e| e["payload"]["reason"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        reasons.last().map(String::as_str),
+        Some("an edit that only tightens")
+    );
+}

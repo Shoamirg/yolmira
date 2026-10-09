@@ -33,6 +33,8 @@ pub struct State {
     pub identity: crate::identity::Identity,
     pub agent_jobs: super::peer::AgentJobs,
     pub policy: super::policy::Gate,
+    /// policies.toml / agents.toml: confirmed versions and pending loosening edits.
+    pub config: super::config_guard::ConfigGuard,
 }
 
 impl State {
@@ -58,6 +60,7 @@ impl State {
             identity,
             agent_jobs: super::peer::AgentJobs::default(),
             policy: super::policy::Gate::default(),
+            config: super::config_guard::ConfigGuard::default(),
         }
     }
 

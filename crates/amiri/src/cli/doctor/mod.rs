@@ -6,6 +6,7 @@ pub mod agents;
 mod gather;
 mod machine;
 
+use crate::config_files::{evaluate, ConfigFile};
 use agents::{AgentFact, Probe};
 use amiri_ipc::win::env::EnvSource;
 use amiri_store::{Inspection, LATEST_VERSION};
@@ -77,6 +78,15 @@ pub enum DbFact {
     Unreadable(String),
 }
 
+/// A guarded config file: its confirmed and current text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigFact {
+    pub file: ConfigFile,
+    pub confirmed: Option<String>,
+    pub current: Option<String>,
+    pub unreadable: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Facts {
     pub env: EnvSource,
@@ -86,6 +96,7 @@ pub struct Facts {
     /// HKLM `...\Policies\System\EnableLUA`; `None` when absent (UAC on by default).
     pub enable_lua: Option<u32>,
     pub agents: Result<Vec<AgentFact>, String>,
+    pub config: Vec<ConfigFact>,
     /// The WebView2 Runtime's version, if installed.
     pub webview2: Option<String>,
 }
@@ -97,6 +108,7 @@ pub fn checks(f: &Facts) -> Vec<Check> {
     out.push(stale_sessions(&f.daemon, &f.db));
     out.push(elevation(f.elevated));
     out.push(uac(f.enable_lua));
+    out.extend(f.config.iter().map(config_check));
     out.extend(agent_checks(&f.agents));
     out.push(webview2(f.webview2.as_deref()));
     out
@@ -253,6 +265,41 @@ fn agent(a: &AgentFact) -> Check {
             _ => Check::ok(name, format!("{v} at {path}")),
         },
     }
+}
+
+/// policies.toml / agents.toml: an unconfirmed loosening edit doesn't apply.
+fn config_check(c: &ConfigFact) -> Check {
+    let name = format!("config_{}", c.file.file_name().trim_end_matches(".toml"));
+    if let Some(e) = &c.unreadable {
+        return Check::fail(
+            name,
+            format!("can't read it: {e}"),
+            &["Check the file's permissions."],
+        );
+    }
+    if c.confirmed == c.current {
+        return Check::ok(name, "the confirmed version is in force");
+    }
+    let e = evaluate(c.file, c.confirmed.as_deref(), c.current.as_deref());
+    if let Some(why) = e.invalid {
+        return Check::fail(
+            name,
+            format!("{} doesn't parse ({why}); AMIRI applies the confirmed version, failing closed", c.file.file_name()),
+            &["Fix the file, or restore the confirmed version (`amiri events --kind policy.config_accepted` shows it)."],
+        );
+    }
+    if e.loosenings.is_empty() {
+        return Check::ok(name, "an edit that only tightens; it applies");
+    }
+    Check::warn(
+        name,
+        format!(
+            "an unconfirmed edit loosens: {}. Until a person confirms it in the AMIRI window, it doesn't apply. Diff:\n{}",
+            e.loosenings.join("; "),
+            e.diff
+        ),
+        &["If you made this edit, confirm it in the AMIRI window; if you didn't, an agent or another program may have: undo it."],
+    )
 }
 
 fn webview2(version: Option<&str>) -> Check {

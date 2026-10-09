@@ -2,6 +2,9 @@ import { useShallow } from "zustand/react/shallow";
 import type { PendingAsk } from "../api";
 import { useStore } from "../store";
 
+/** A loosening edit of policies.toml / agents.toml, waiting for confirmation. */
+const isConfig = (a: PendingAsk) => a.action.startsWith("config.");
+
 /** What a request would do, in a line a person can check. */
 function describe(a: PendingAsk): string {
   const d = a.detail as Record<string, unknown>;
@@ -16,6 +19,9 @@ function describe(a: PendingAsk): string {
       return `Register project ${String(d.name)} at ${String(d.path)}`;
     case "project.remove":
       return `Forget project ${String(d.name)} (its folder is untouched)`;
+    case "config.policies":
+    case "config.agents":
+      return `Confirm an edit of ${String(d.file)} that loosens: ${((d.loosenings as string[] | undefined) ?? []).join("; ")}`;
     default:
       return `${a.action} ${JSON.stringify(a.detail)}`;
   }
@@ -41,6 +47,11 @@ export function ApprovalPanel() {
         {asks.map((a) => (
           <li key={a.id} className="approval" data-testid="approval" data-ask-id={a.id} data-action={a.action}>
             <div className="approval-what">{describe(a)}</div>
+            {isConfig(a) && (
+              <pre className="approval-diff" data-testid="approval-diff">
+                {String((a.detail as Record<string, unknown>).diff ?? "")}
+              </pre>
+            )}
             <div className="approval-meta">
               asked by {a.client}
               {a.project ? ` · project ${a.project}` : ""} · rule: {a.rule}
@@ -50,13 +61,15 @@ export function ApprovalPanel() {
             </div>
             <div className="approval-actions">
               <button type="button" className="btn" data-testid="approve-once" onClick={() => void answer(a.id, true, false)}>
-                Allow once
+                {isConfig(a) ? "Confirm the edit" : "Allow once"}
               </button>
-              <button type="button" className="btn btn-quiet" data-testid="approve-session" onClick={() => void answer(a.id, true, true)}>
-                Allow until the daemon stops
-              </button>
+              {!isConfig(a) && (
+                <button type="button" className="btn btn-quiet" data-testid="approve-session" onClick={() => void answer(a.id, true, true)}>
+                  Allow until the daemon stops
+                </button>
+              )}
               <button type="button" className="btn btn-quiet btn-danger" data-testid="deny" onClick={() => void answer(a.id, false, false)}>
-                Deny
+                {isConfig(a) ? "Decline (keep the confirmed version)" : "Deny"}
               </button>
             </div>
           </li>

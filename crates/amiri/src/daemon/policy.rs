@@ -20,8 +20,9 @@
 use super::auth::constant_time_eq;
 use super::peer::{is_trusted_ui, Peer};
 use super::state::State;
+use crate::config_files::ConfigFile;
 use amiri_core::event::kinds;
-use amiri_core::policy::{Decision, Policy, Verdict};
+use amiri_core::policy::{Decision, Verdict};
 use amiri_core::{AmiriError, NewEvent};
 use amiri_ipc::protocol::{
     codes, AnswerDecision, AnswerScope, PendingAsk, PolicyAnswerParams, PolicyIdParams, RpcError,
@@ -49,7 +50,38 @@ struct Waiting {
     /// Never in an event; only the genuine UI may read it.
     code: String,
     wrong_codes: u32,
-    reply: oneshot::Sender<Answer>,
+    reply: Reply,
+}
+
+/// What an answer releases.
+enum Reply {
+    /// A request held in `check`.
+    Request(oneshot::Sender<Answer>),
+    /// A loosening edit of a config file (`config_guard.rs`); `content` is the text
+    /// the person sees and confirms.
+    Config {
+        file: ConfigFile,
+        content: Option<String>,
+    },
+}
+
+impl Reply {
+    fn deliver(self, state: &State, answer: Answer) {
+        match self {
+            Reply::Request(tx) => {
+                // The requester may have gone meanwhile; its decision event says so.
+                let _ = tx.send(answer);
+            }
+            Reply::Config { file, content } => {
+                if answer.decision == AnswerDecision::Allow {
+                    let reason = format!("confirmed by {}", answer.by);
+                    state.config.accept(state, file, content, &reason);
+                } else {
+                    state.config.decline(state, file, content, &answer.by);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -92,31 +124,67 @@ fn new_code() -> String {
 }
 
 /// The policy in force, or why the file can't be used (then everything is ASK).
-fn load(state: &State) -> Result<Policy, String> {
-    let path = state.instance.policies_path();
-    match std::fs::read_to_string(&path) {
-        Ok(text) => Policy::from_toml(&text).map_err(|e| format!("{}: {e}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Policy::default()),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
+/// The decision under the policy in force: the confirmed policies.toml, and an
+/// unconfirmed edit only where it tightens (`config_guard.rs`).
+fn verdict(state: &State, c: &Check<'_>) -> (Decision, String, Option<String>) {
+    let (v, note) = state
+        .config
+        .policy(state)
+        .decide(c.action, c.project.as_deref());
+    let Verdict {
+        decision,
+        rule,
+        limited_by,
+    } = v;
+    let limited = match (limited_by, note) {
+        (Some(l), Some(n)) => Some(format!("{l}; {n}")),
+        (Some(l), None) => Some(l.to_string()),
+        (None, n) => n,
+    };
+    (decision, rule.describe(), limited)
 }
 
-fn verdict(state: &State, c: &Check<'_>) -> (Decision, String, Option<&'static str>) {
-    match load(state) {
-        Ok(policy) => {
-            let Verdict {
-                decision,
-                rule,
-                limited_by,
-            } = policy.decide(c.action, c.project.as_deref());
-            (decision, rule.describe(), limited_by)
-        }
-        Err(e) => (
-            Decision::Ask,
-            format!("policies.toml is invalid ({e})"),
-            None,
-        ),
+/// Open a confirmation for a loosening edit of a config file; returns its id. It
+/// waits until answered, or until the file changes again.
+pub fn open_confirmation(
+    state: &State,
+    file: ConfigFile,
+    content: Option<String>,
+    e: &crate::config_files::Evaluation,
+) -> String {
+    let ask = PendingAsk {
+        id: uuid::Uuid::now_v7().to_string(),
+        action: format!("config.{}", file.file_name().trim_end_matches(".toml")),
+        project: None,
+        detail: json!({ "file": file.file_name(), "diff": e.diff, "loosenings": e.loosenings }),
+        rule: "an edit that loosens a config file waits for a person's confirmation".into(),
+        client: "file edit".into(),
+        connection: 0,
+        person_id: None,
+        install_id: Some(state.identity.install.install_id.clone()),
+        agent_id: None,
+        asked_at: amiri_core::time::now_rfc3339(),
+    };
+    let id = ask.id.clone();
+    let event = NewEvent::new(kinds::POLICY_ASK, "amiri", json!(ask));
+    lock(&state.policy.waiting).insert(
+        id.clone(),
+        Waiting {
+            ask,
+            code: new_code(),
+            wrong_codes: 0,
+            reply: Reply::Config { file, content },
+        },
+    );
+    if let Err(err) = state.record(event) {
+        tracing::error!(error = %err, "could not record a config confirmation");
     }
+    id
+}
+
+/// The file changed again: its open confirmation no longer applies.
+pub fn close_confirmation(state: &State, id: &str) {
+    lock(&state.policy.waiting).remove(id);
 }
 
 struct Outcome {
@@ -183,7 +251,7 @@ async fn ask(state: &Arc<State>, c: &Check<'_>, rule: &str) -> Result<Outcome, R
         ask: ask.clone(),
         code: new_code(),
         wrong_codes: 0,
-        reply,
+        reply: Reply::Request(reply),
     };
     lock(&state.policy.waiting).insert(id.clone(), waiting);
     let _unregister = Unregister { state, id };
@@ -229,7 +297,7 @@ fn record_decision(
     state: &State,
     c: &Check<'_>,
     o: &Outcome,
-    limited_by: Option<&'static str>,
+    limited_by: Option<String>,
 ) -> Result<(), RpcError> {
     let payload = json!({
         "action": c.action,
@@ -363,11 +431,14 @@ pub fn answer(
             if exhausted {
                 // Too many tries: the request is denied, so the code can't be guessed.
                 if let Some(w) = waiting.remove(&p.id) {
-                    let _ = w.reply.send(Answer {
-                        decision: AnswerDecision::Deny,
-                        scope: AnswerScope::Once,
-                        by: format!("{MAX_CODE_ATTEMPTS} wrong approval codes"),
-                    });
+                    w.reply.deliver(
+                        state,
+                        Answer {
+                            decision: AnswerDecision::Deny,
+                            scope: AnswerScope::Once,
+                            by: format!("{MAX_CODE_ATTEMPTS} wrong approval codes"),
+                        },
+                    );
                 }
             }
             return Err(forbidden(
@@ -386,12 +457,14 @@ pub fn answer(
         json!({ "id": p.id, "action": w.ask.action, "decision": p.decision, "scope": p.scope, "via": via, "pid": peer.pid, "answered_by_person": state.identity.person.person_id, "answered_by_install": state.identity.install.install_id }),
     );
     state.record(event).map_err(RpcError::amiri)?;
-    // The requester may have gone meanwhile; its own decision event says so.
-    let _ = w.reply.send(Answer {
-        decision: p.decision,
-        scope: p.scope,
-        by: client.into(),
-    });
+    w.reply.deliver(
+        state,
+        Answer {
+            decision: p.decision,
+            scope: p.scope,
+            by: client.into(),
+        },
+    );
     Ok(json!({ "answered": true }))
 }
 

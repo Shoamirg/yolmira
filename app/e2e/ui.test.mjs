@@ -268,3 +268,33 @@ e2e("project_picker", async () => {
   const listed = await instance.cli("project", "list");
   assert.deepEqual(JSON.parse(listed.stdout), [{ name: "web", path: dir }]);
 });
+
+// Slice D (reviewer, 2026-10-09): an edit of policies.toml that loosens it waits for
+// confirmation in the window, showing its diff; meanwhile the old rule applies.
+e2e("config_edit_needs_confirmation", async () => {
+  const instance = track(new Instance("config"));
+  instance.writePolicies('[global]\n"session.kill" = "ask"\n"daemon.stop" = "allow"\n');
+  const ui = await Ui.launch(driver, instance, track);
+  await ui.waitConnected();
+  const id = await ui.newCmd();
+  // Someone (an agent, say) loosens the file while the UI runs.
+  instance.writePolicies('[global]\n"session.kill" = "allow"\n"daemon.stop" = "allow"\n');
+  const approval = (action) =>
+    ui.exec(`const a = document.querySelector('[data-testid=approval][data-action="${action}"]'); return a ? { id: a.dataset.askId, diff: a.querySelector('[data-testid=approval-diff]')?.textContent ?? null } : null`);
+  const confirm = await waitFor("the confirmation of the edit", () => approval("config.policies"));
+  assert.match(confirm.diff, /\+"session\.kill" = "allow"/);
+  // Not yet confirmed: a kill still asks. Deny it.
+  await ui.click(`[data-testid=session-row][data-session-id="${id}"] [data-testid=kill]`);
+  await waitFor("the kill's approval", () => approval("session.kill"));
+  await ui.click('[data-testid=approval][data-action="session.kill"] [data-testid=deny]');
+  await waitFor("the kill's approval gone", async () => !(await approval("session.kill")));
+  assert.equal((await ui.rows()).find((r) => r.id === id)?.status, "RUNNING");
+  // Confirmed in the window: the edit applies, the kill goes through without asking.
+  await ui.click('[data-testid=approval][data-action="config.policies"] [data-testid=approve-once]');
+  await waitFor("the confirmation gone", async () => !(await approval("config.policies")));
+  await ui.click(`[data-testid=session-row][data-session-id="${id}"] [data-testid=kill]`);
+  await waitFor("the shell ended", async () => (await ui.rows()).find((r) => r.id === id)?.status === "EXITED");
+  const changed = await instance.cli("events", "--kind", "policy.config_changed", "--limit", "10");
+  const first = JSON.parse(changed.stdout.split(/\r?\n/).filter(Boolean)[0]);
+  assert.equal(first.payload.applied, false);
+});
