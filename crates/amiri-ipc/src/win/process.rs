@@ -296,6 +296,32 @@ impl ProcessWatch {
             .ok_or_else(io::Error::last_os_error)
     }
 
+    /// Whether the process is in `job` (a job this process created and holds).
+    pub fn in_job(&self, job: &Job) -> io::Result<bool> {
+        let mut result = 0;
+        // SAFETY: both handles are valid; `result` is an out-param.
+        if unsafe { IsProcessInJob(self.handle.raw(), job.handle.raw(), &mut result) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(result != 0)
+    }
+
+    /// Full path of the process's executable.
+    pub fn image_path(&self) -> io::Result<PathBuf> {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::System::Threading::QueryFullProcessImageNameW;
+        let mut buf = vec![0u16; 32_768];
+        let mut len = buf.len() as u32;
+        // SAFETY: valid handle; `buf` holds `len` UTF-16 units and `len` is updated.
+        if unsafe { QueryFullProcessImageNameW(self.handle.raw(), 0, buf.as_mut_ptr(), &mut len) }
+            == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        buf.truncate(len as usize);
+        Ok(PathBuf::from(std::ffi::OsString::from_wide(&buf)))
+    }
+
     /// Exit code if the process exits within `timeout`.
     pub fn wait(&self, timeout: Duration) -> io::Result<Option<u32>> {
         if !wait_handle(&self.handle, timeout)? {
@@ -308,6 +334,18 @@ impl ProcessWatch {
         }
         Ok(Some(code))
     }
+}
+
+/// The pid of the process on the client end of a connected named pipe (as the
+/// kernel reports it: the client can't choose it).
+pub fn pipe_client_pid(pipe: std::os::windows::io::RawHandle) -> io::Result<u32> {
+    use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    let mut pid = 0u32;
+    // SAFETY: `pipe` is a connected server-end pipe handle owned by the caller.
+    if unsafe { GetNamedPipeClientProcessId(pipe as _, &mut pid) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(pid)
 }
 
 /// Whether the current process is in any job.
@@ -363,6 +401,38 @@ mod tests {
             current_job_allows_breakaway()
         );
         assert!(current_job_allows_breakaway().is_ok());
+    }
+
+    fn ping_options() -> SpawnOptions {
+        SpawnOptions {
+            exe: PathBuf::from(r"C:\Windows\System32\PING.EXE"),
+            args: vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+            env: None,
+            cwd: None,
+            flags: CREATE_NO_WINDOW,
+        }
+    }
+
+    #[test]
+    fn a_process_is_seen_in_its_own_job_and_not_in_another() {
+        let job = Job::new(true, false).unwrap();
+        let other = Job::new(true, false).unwrap();
+        let p = job.spawn(&ping_options()).unwrap();
+        let watch = ProcessWatch::open(p.pid()).unwrap();
+        assert!(watch.in_job(&job).unwrap());
+        assert!(!watch.in_job(&other).unwrap());
+        p.kill().unwrap();
+    }
+
+    #[test]
+    fn image_path_names_the_executable() {
+        let me = ProcessWatch::open(std::process::id()).unwrap();
+        let path = me.image_path().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(
+            path.to_string_lossy().to_lowercase(),
+            exe.to_string_lossy().to_lowercase()
+        );
     }
 
     #[test]
