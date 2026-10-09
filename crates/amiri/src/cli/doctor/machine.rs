@@ -1,29 +1,29 @@
-//! `amiri doctor`: reports silent failure modes (ARCHITECTURE §14). Checks are pure
-//! functions over what they read, so tests can simulate broken machines.
-//! Phase 1 Slice D adds the daemon, database and elevation checks.
+//! Machine environment checks: the registry values other programs depend on.
 
+use super::{Check, Status};
 use amiri_ipc::win::env::{expand_with, windows_powershell, EnvSource};
-use serde::Serialize;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Status {
-    Ok,
-    Warn,
-    Fail,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Check {
-    pub name: &'static str,
-    pub status: Status,
-    pub detail: String,
-    pub next_steps: Vec<String>,
-}
-
 pub fn checks(src: &EnvSource) -> Vec<Check> {
-    vec![comspec(src), powershell_on_path(src)]
+    vec![comspec(src), powershell_on_path(src), powershell_exe(src)]
+}
+
+/// Windows PowerShell itself: AMIRI starts it by full path for PowerShell shells.
+fn powershell_exe(src: &EnvSource) -> Check {
+    let path = src.windows_dir.as_deref().map(windows_powershell);
+    match path {
+        Some(p) if Path::new(&p).is_file() => Check::ok("powershell_exe", p),
+        Some(p) => Check::fail(
+            "powershell_exe",
+            format!("{p} doesn't exist"),
+            &["Repair Windows PowerShell: run `sfc /scannow` from an administrator window."],
+        ),
+        None => Check::warn(
+            "powershell_exe",
+            "the Windows directory is unknown",
+            &["Run `amiri doctor` again; report it if this persists."],
+        ),
+    }
 }
 
 fn system_vars(src: &EnvSource) -> Vec<(String, String)> {
@@ -74,7 +74,7 @@ fn comspec(src: &EnvSource) -> Check {
         vec![fix]
     };
     Check {
-        name: "machine_comspec",
+        name: "machine_comspec".into(),
         status,
         detail,
         next_steps,
@@ -86,7 +86,7 @@ fn comspec(src: &EnvSource) -> Check {
 fn powershell_on_path(src: &EnvSource) -> Check {
     let Some(dir) = src.windows_dir.as_deref() else {
         return Check {
-            name: "machine_path_powershell",
+            name: "machine_path_powershell".into(),
             status: Status::Warn,
             detail: "the Windows directory is unknown".into(),
             next_steps: vec!["Run `amiri doctor` again; report it if this persists.".into()],
@@ -100,14 +100,14 @@ fn powershell_on_path(src: &EnvSource) -> Check {
         .is_some_and(|p| p.split(';').any(|entry| normalize(entry) == ps_dir));
     if on_path {
         return Check {
-            name: "machine_path_powershell",
+            name: "machine_path_powershell".into(),
             status: Status::Ok,
             detail: ps_dir,
             next_steps: vec![],
         };
     }
     Check {
-        name: "machine_path_powershell",
+        name: "machine_path_powershell".into(),
         status: Status::Warn,
         detail: format!("the machine PATH lacks {ps_dir}; AMIRI starts PowerShell by full path, other tools may not"),
         next_steps: vec![format!("{BACKUP}. {PATH_FIX}. {AFTER}")],

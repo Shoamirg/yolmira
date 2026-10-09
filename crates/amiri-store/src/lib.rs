@@ -11,6 +11,17 @@ use std::path::{Path, PathBuf};
 pub use migrate::{MigrationReport, LATEST_VERSION};
 pub use projection::{ProjectRow, SessionRow};
 
+/// What `Store::inspect` found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inspection {
+    /// `"ok"` when healthy, otherwise SQLite's first finding.
+    pub integrity: String,
+    /// Schema version (`PRAGMA user_version`); compare with `LATEST_VERSION`.
+    pub version: i64,
+    /// Sessions the database records as RUNNING.
+    pub running: Vec<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("database error: {0}")]
@@ -140,6 +151,27 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Look at a database without changing it (no migration, no backup), for
+    /// `amiri doctor`: integrity, schema version, and sessions recorded RUNNING.
+    pub fn inspect(path: &Path) -> Result<Inspection> {
+        use rusqlite::OpenFlags;
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let running = if version >= 2 {
+            let mut stmt = conn.prepare("SELECT id FROM sessions WHERE status = 'RUNNING'")?;
+            let ids = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            ids.collect::<rusqlite::Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
+        Ok(Inspection {
+            integrity,
+            version,
+            running,
+        })
     }
 
     /// `PRAGMA integrity_check` result; `"ok"` when healthy.

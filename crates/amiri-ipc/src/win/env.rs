@@ -247,6 +247,46 @@ fn windows_dir() -> io::Result<String> {
     Ok(from_wide(&buf))
 }
 
+/// A string value under HKLM (`machine`) or HKCU, unexpanded; `Ok(None)` if absent.
+pub fn registry_string(machine: bool, key: &str, name: &str) -> io::Result<Option<String>> {
+    let root = if machine {
+        HKEY_LOCAL_MACHINE
+    } else {
+        HKEY_CURRENT_USER
+    };
+    registry_value(root, key, name)
+}
+
+/// A REG_DWORD value under HKLM (`machine`) or HKCU; `Ok(None)` if absent.
+pub fn registry_dword(machine: bool, key: &str, name: &str) -> io::Result<Option<u32>> {
+    use windows_sys::Win32::System::Registry::RRF_RT_REG_DWORD;
+    let root = if machine {
+        HKEY_LOCAL_MACHINE
+    } else {
+        HKEY_CURRENT_USER
+    };
+    let (k, n) = (wide(key), wide(name));
+    let mut value = 0u32;
+    let mut len = std::mem::size_of::<u32>() as u32;
+    // SAFETY: `value` holds `len` bytes; key and name are NUL-terminated.
+    let rc = unsafe {
+        RegGetValueW(
+            root,
+            k.as_ptr(),
+            n.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            (&mut value as *mut u32).cast(),
+            &mut len,
+        )
+    };
+    match rc {
+        0 => Ok(Some(value)),
+        ERROR_FILE_NOT_FOUND => Ok(None),
+        other => Err(io::Error::from_raw_os_error(other as i32)),
+    }
+}
+
 /// A REG_SZ / REG_EXPAND_SZ value, unexpanded; `Ok(None)` if absent. Retries if the
 /// value grows between the size query and the read.
 fn registry_value(root: HKEY, key: &str, name: &str) -> io::Result<Option<String>> {

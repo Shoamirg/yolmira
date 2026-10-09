@@ -288,3 +288,39 @@ fn events_carry_person_and_agent_and_older_rows_have_none() {
     assert_eq!(all[1].install_id.as_deref(), Some("i-1"));
     assert_eq!(all[0].install_id, None);
 }
+
+#[test]
+fn inspect_reads_without_changing_and_sees_corruption() {
+    let (_dir, path) = temp_db();
+    {
+        let mut store = Store::open(&path).unwrap();
+        session_events(&mut store);
+        store
+            .append(
+                NewEvent::new(kinds::SESSION_CREATED, actors::USER, json!({})).for_session("s3"),
+            )
+            .unwrap();
+    }
+    let seen = Store::inspect(&path).unwrap();
+    assert_eq!(seen.integrity, "ok");
+    assert_eq!(seen.version, LATEST_VERSION);
+    assert_eq!(seen.running, vec!["s3".to_string()]);
+    // A damaged copy: first move the WAL into the main file, then overwrite page 2
+    // (a b-tree page in use) completely.
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+    }
+    let copy = path.with_file_name("copy.db");
+    let mut bytes = std::fs::read(&path).unwrap();
+    let page = usize::from(u16::from_be_bytes([bytes[16], bytes[17]]));
+    assert!(bytes.len() >= 3 * page, "a database of several pages");
+    bytes[page..2 * page].fill(0xA5);
+    std::fs::write(&copy, &bytes).unwrap();
+    let damaged = Store::inspect(&copy);
+    assert!(
+        damaged.as_ref().map_or(true, |i| i.integrity != "ok"),
+        "{damaged:?}"
+    );
+}

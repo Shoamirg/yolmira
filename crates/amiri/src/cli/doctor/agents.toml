@@ -1,0 +1,24 @@
+# Agent CLIs `amiri doctor` looks for (phase1-plan Slice D). Data, not code: add a CLI
+# by adding an [[agent]] entry. Entries in agents.toml in your AMIRI config folder
+# (%APPDATA%\AMIRI) replace these by name, or add new ones.
+#
+#   name          a short id; the check is reported as agent_<name>
+#   command       found on the PATH AMIRI gives agents (.exe, .cmd, .bat), or an absolute path
+#   version_args  arguments that print the version; the first x.y.z in the output counts
+#   tested        the versions AMIRI is tested with: "x.y.z" or "x.y.z..x.y.z"; omit for any
+#   missing       "warn" if AMIRI needs it, "info" if it is optional
+
+[[agent]]
+name = "claude"
+command = "claude"
+version_args = ["--version"]
+# Spike S2 and the stream fixtures (ARCHITECTURE risk R4).
+tested = "2.1.281"
+missing = "warn"
+
+[[agent]]
+name = "codex"
+command = "codex"
+version_args = ["--version"]
+# Untested until spike S3 (start of Phase 4, risk R1).
+missing = "info"

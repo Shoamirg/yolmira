@@ -46,7 +46,7 @@ pub async fn run(cli: Cli) -> u8 {
             kind,
             follow,
         } => events(&out, instance, after, limit, kind, follow).await,
-        Command::Doctor => Ok(doctor(&out)),
+        Command::Doctor => Ok(doctor(&out, &instance).await),
         Command::Approve {
             id,
             list,
@@ -98,9 +98,10 @@ pub(super) async fn connect_started(instance: &Instance) -> Result<Client, Amiri
         .map_err(client_error)
 }
 
-fn doctor(out: &Out) -> u8 {
-    use super::doctor::{checks, Status};
-    let results = checks(&amiri_ipc::win::env::EnvSource::system());
+/// Reads the machine without changing it; never starts the daemon.
+async fn doctor(out: &Out, instance: &Instance) -> u8 {
+    use super::doctor::{checks, gather, Status};
+    let results = checks(&gather(instance).await);
     if out.json {
         out.value(String::new, json!({ "checks": results }));
     } else {
