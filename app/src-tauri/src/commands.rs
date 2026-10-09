@@ -4,7 +4,10 @@
 use crate::daemon::{Daemon, DaemonState};
 use crate::errors::invalid;
 use amiri_core::AmiriError;
-use amiri_ipc::protocol::{methods, SessionCreateParams, SessionInfo};
+use amiri_ipc::protocol::{
+    methods, AnswerDecision, AnswerScope, PendingAsk, PolicyAnswerParams, SessionCreateParams,
+    SessionInfo,
+};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde::Serialize;
@@ -101,8 +104,9 @@ pub async fn session_create(
         // The project picker arrives with Slice D's UI work.
         project: None,
     };
+    // Creating a shell may ask (a policy rule); it must not block the control link.
     let v = daemon
-        .call(WHAT, methods::SESSION_CREATE, json!(params))
+        .call_gated(WHAT, methods::SESSION_CREATE, json!(params))
         .await?;
     decode(WHAT, v)
 }
@@ -166,8 +170,64 @@ pub async fn session_resize(daemon: DaemonRef<'_>, id: String, cols: u16, rows: 
 pub async fn session_kill(daemon: DaemonRef<'_>, id: String) -> Res<()> {
     const WHAT: &str = "Close the shell";
     valid_id(WHAT, &id)?;
+    // Killing asks by default: wait on its own connection for the answer.
     daemon
-        .call(WHAT, methods::SESSION_KILL, json!({ "id": id }))
+        .call_gated(WHAT, methods::SESSION_KILL, json!({ "id": id }))
+        .await
+        .map(|_| ())
+}
+
+/// Requests waiting for an answer (the approval panel).
+#[tauri::command]
+pub async fn policy_pending(daemon: DaemonRef<'_>) -> Res<Vec<PendingAsk>> {
+    const WHAT: &str = "List requests waiting for approval";
+    let v = daemon
+        .call(WHAT, methods::POLICY_PENDING, json!({}))
+        .await?;
+    decode(WHAT, v)
+}
+
+/// The one-time code of a waiting request, shown so a person can approve it from
+/// the CLI. The daemon gives it only to this program (decisions.md 2026-10-09).
+#[tauri::command]
+pub async fn policy_code(daemon: DaemonRef<'_>, id: String) -> Res<String> {
+    const WHAT: &str = "Show the approval code";
+    valid_id(WHAT, &id)?;
+    let v = daemon
+        .call(WHAT, methods::POLICY_CODE, json!({ "id": id }))
+        .await?;
+    v["code"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| invalid(WHAT, "the daemon's reply has no code"))
+}
+
+#[tauri::command]
+pub async fn policy_answer(
+    daemon: DaemonRef<'_>,
+    id: String,
+    allow: bool,
+    for_session: bool,
+) -> Res<()> {
+    const WHAT: &str = "Answer the request";
+    valid_id(WHAT, &id)?;
+    let params = PolicyAnswerParams {
+        id,
+        decision: if allow {
+            AnswerDecision::Allow
+        } else {
+            AnswerDecision::Deny
+        },
+        scope: if allow && for_session {
+            AnswerScope::Session
+        } else {
+            AnswerScope::Once
+        },
+        // The daemon recognises this program; no code needed.
+        code: None,
+    };
+    daemon
+        .call(WHAT, methods::POLICY_ANSWER, json!(params))
         .await
         .map(|_| ())
 }

@@ -36,6 +36,20 @@ export type SessionInfo = {
 /** A session list and the pid of the daemon process that answered it. */
 export type SessionSnapshot = { daemon_pid: number; sessions: SessionInfo[] };
 
+/** A request the policy holds until someone answers (daemon `PendingAsk`). */
+export type PendingAsk = {
+  id: string;
+  action: string;
+  project: string | null;
+  detail: unknown;
+  rule: string;
+  client: string;
+  connection: number;
+  person_id: string | null;
+  agent_id: string | null;
+  asked_at: string;
+};
+
 export type ShellKind = "cmd" | "powershell" | "pwsh" | "wsl";
 
 /**
@@ -61,6 +75,10 @@ export const api = {
   sessionResize: (id: string, cols: number, rows: number) =>
     invoke<void>("session_resize", { id, cols, rows }),
   sessionKill: (id: string) => invoke<void>("session_kill", { id }),
+  policyPending: () => invoke<PendingAsk[]>("policy_pending"),
+  policyCode: (id: string) => invoke<string>("policy_code", { id }),
+  policyAnswer: (id: string, allow: boolean, forSession: boolean) =>
+    invoke<void>("policy_answer", { id, allow, forSession }),
 };
 
 export type Handlers = {

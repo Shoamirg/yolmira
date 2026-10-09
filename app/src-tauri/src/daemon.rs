@@ -41,6 +41,7 @@ const RECONNECT_EVERY: Duration = Duration::from_secs(1);
 const CLIENT_MONITOR: &str = "amiri-ui-monitor";
 const CLIENT_CONTROL: &str = "amiri-ui";
 const CLIENT_FEED: &str = "amiri-ui-attach";
+const CLIENT_GATED: &str = "amiri-ui-request";
 
 /// Events the frontend listens to.
 pub mod ui_events {
@@ -271,6 +272,28 @@ impl Daemon {
                 client_error(what, e)
             })
             .map(|v| (v, served_by))
+    }
+
+    /// A request the policy gate may hold until someone approves it (kill, create).
+    /// It gets its own connection, so a pending approval never blocks keystrokes or
+    /// resizes on the control connection, and may wait as long as the daemon's ASK
+    /// limit.
+    pub async fn call_gated(
+        &self,
+        what: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, AmiriError> {
+        if !self.state().connected {
+            return Err(not_connected(what));
+        }
+        let instance = self.instance()?;
+        let mut c = Client::connect(instance, CLIENT_GATED)
+            .await
+            .map_err(|e| client_error(what, e))?;
+        c.call_value_within(method, params, amiri_ipc::client::ASK_LIMIT)
+            .await
+            .map_err(|e| client_error(what, e))
     }
 
     /// Attach on a new feed connection; output goes to the frontend as events tagged

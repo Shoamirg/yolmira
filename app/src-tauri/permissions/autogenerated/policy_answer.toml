@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-policy-answer"
+description = "Enables the policy_answer command without any pre-configured scope."
+commands.allow = ["policy_answer"]
+
+[[permission]]
+identifier = "deny-policy-answer"
+description = "Denies the policy_answer command without any pre-configured scope."
+commands.deny = ["policy_answer"]

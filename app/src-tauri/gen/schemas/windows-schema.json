@@ -189,6 +189,24 @@
           "markdownDescription": "Enables the daemon_state command without any pre-configured scope."
         },
         {
+          "description": "Enables the policy_answer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-policy-answer",
+          "markdownDescription": "Enables the policy_answer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the policy_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-policy-code",
+          "markdownDescription": "Enables the policy_code command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the policy_pending command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-policy-pending",
+          "markdownDescription": "Enables the policy_pending command without any pre-configured scope."
+        },
+        {
           "description": "Enables the session_ack command without any pre-configured scope.",
           "type": "string",
           "const": "allow-session-ack",
@@ -247,6 +265,24 @@
           "type": "string",
           "const": "deny-daemon-state",
           "markdownDescription": "Denies the daemon_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the policy_answer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-policy-answer",
+          "markdownDescription": "Denies the policy_answer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the policy_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-policy-code",
+          "markdownDescription": "Denies the policy_code command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the policy_pending command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-policy-pending",
+          "markdownDescription": "Denies the policy_pending command without any pre-configured scope."
         },
         {
           "description": "Denies the session_ack command without any pre-configured scope.",

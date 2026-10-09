@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api, subscribe } from "./api";
+import { ApprovalPanel } from "./components/ApprovalPanel";
 import { Banner } from "./components/Banner";
 import { SessionList } from "./components/SessionList";
 import { Tabs } from "./components/Tabs";
@@ -26,7 +27,9 @@ function useDaemonLink() {
         if (!cancelled) store().setDaemon(d);
       },
       daemonEvent: (e) => {
-        if (!cancelled && e.kind.startsWith("session.")) scheduleRefresh();
+        if (cancelled) return;
+        if (e.kind.startsWith("session.")) scheduleRefresh();
+        if (e.kind.startsWith("policy.")) void store().refreshAsks();
       },
       output: (o) => !cancelled && store().onOutput(o),
       exited: (e) => !cancelled && store().onExited(e),
@@ -77,6 +80,7 @@ export function App() {
       <SessionList />
       <div className="main-column">
         <Banner />
+        <ApprovalPanel />
         <ErrorPanel />
         <Tabs />
       </div>

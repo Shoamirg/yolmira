@@ -197,3 +197,49 @@ e2e("output_flood_flows_through", async () => {
   await ui.typeLine("echo [%OS%]");
   await ui.waitLine(id, "[Windows_NT]");
 });
+
+// Slice D: a kill waits for approval. The UI shows the request and its CLI code;
+// Deny keeps the shell, the code works for `amiri approve`, Allow once ends it.
+e2e("ui_approval_prompt", async () => {
+  const instance = track(new Instance("approve"));
+  instance.writePolicies('[global]\n"session.kill" = "ask"\n"daemon.stop" = "allow"\n');
+  const ui = await Ui.launch(driver, instance, track);
+  await ui.waitConnected();
+  const first = await ui.newCmd();
+  const second = await ui.newCmd();
+  const kill = (id) => ui.click(`[data-testid=session-row][data-session-id="${id}"] [data-testid=kill]`);
+  const prompt = () =>
+    waitFor("the approval prompt", () =>
+      ui.exec("const a = document.querySelector('[data-testid=approval]'); if (!a) return null; const code = a.querySelector('[data-testid=approval-code]').textContent; return /^\\d{8}$/.test(code) ? { id: a.dataset.askId, action: a.dataset.action, code } : null"),
+    );
+  const promptGone = () => waitFor("the prompt to close", () => ui.exec("return !document.querySelector('[data-testid=approval]')"));
+  const status = async (id) => (await ui.rows()).find((r) => r.id === id)?.status;
+
+  // Deny: the shell keeps running.
+  await kill(first);
+  let ask = await prompt();
+  assert.equal(ask.action, "session.kill");
+  await ui.click("[data-testid=deny]");
+  await promptGone();
+  await sleep(1000);
+  assert.equal(await status(first), "RUNNING", "a denied kill leaves the shell running");
+
+  // The CLI with the code the UI shows.
+  await kill(first);
+  ask = await prompt();
+  const approved = await instance.cli("approve", ask.id, "--code", ask.code);
+  assert.equal(approved.code, 0, approved.stdout + approved.stderr);
+  await waitFor("the first shell ended", async () => (await status(first)) === "EXITED");
+  await promptGone();
+
+  // Allow once in the UI.
+  await kill(second);
+  await prompt();
+  await ui.click("[data-testid=approve-once]");
+  await waitFor("the second shell ended", async () => (await status(second)) === "EXITED");
+
+  // Each answer is in the log, with how it was given.
+  const ev = await instance.cli("events", "--kind", "policy.answered", "--limit", "10");
+  const vias = ev.stdout.split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l).payload.via);
+  assert.deepEqual(vias, ["ui", "code", "ui"]);
+});

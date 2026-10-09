@@ -173,6 +173,9 @@ fn main() {
             commands::session_input,
             commands::session_resize,
             commands::session_kill,
+            commands::policy_pending,
+            commands::policy_code,
+            commands::policy_answer,
         ])
         .setup(move |app| {
             let window =

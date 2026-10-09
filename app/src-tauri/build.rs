@@ -11,6 +11,9 @@ const COMMANDS: &[&str] = &[
     "session_input",
     "session_resize",
     "session_kill",
+    "policy_pending",
+    "policy_code",
+    "policy_answer",
 ];
 
 fn main() {

@@ -5,6 +5,7 @@ import {
   type AmiriError,
   type DaemonState,
   type FeedClosed,
+  type PendingAsk,
   type SessionExited,
   type SessionInfo,
   type SessionOutput,
@@ -27,6 +28,9 @@ type Store = {
   tabs: Tab[];
   active: string | null;
   error: AmiriError | null;
+  /** Requests waiting for an answer, and their CLI codes (fetched per request). */
+  asks: PendingAsk[];
+  askCodes: Record<string, string>;
 
   setDaemon: (d: DaemonState) => void;
   resume: () => Promise<void>;
@@ -42,6 +46,8 @@ type Store = {
   onFeedClosed: (f: FeedClosed) => void;
   showError: (e: unknown, what: string) => void;
   dismissError: () => void;
+  refreshAsks: () => Promise<void>;
+  answerAsk: (id: string, allow: boolean, forSession: boolean) => Promise<void>;
 };
 
 const OFFLINE: DaemonState = { connected: false, pid: null, version: null, instance: null, error: null };
@@ -77,6 +83,8 @@ export const useStore = create<Store>((set, get) => {
     tabs: [],
     active: null,
     error: null,
+    asks: [],
+    askCodes: {},
 
     // A different daemon (even without a disconnect in between) counts as one: its
     // feeds are gone and its list must be reloaded before anything shows RUNNING.
@@ -90,7 +98,12 @@ export const useStore = create<Store>((set, get) => {
           ? s.tabs.map((t) => (t.feed === "exited" ? t : { ...t, feed: "closed", note: "daemon unreachable" }))
           : s.tabs,
       }));
-      if (d.connected) void get().resume();
+      if (d.connected) {
+        void get().resume();
+        void get().refreshAsks();
+      } else {
+        set({ asks: [], askCodes: {} });
+      }
     },
 
     // Reconnected: reload the list, then reattach the tabs whose shell still runs
@@ -191,6 +204,34 @@ export const useStore = create<Store>((set, get) => {
       if (t && t.generation === f.generation && (t.feed === "live" || t.feed === "attaching")) {
         updateTab(f.id, { feed: "closed", note: f.why });
       }
+    },
+
+    // The waiting requests come from the daemon; codes are fetched once per request.
+    refreshAsks: async () => {
+      if (!get().daemon.connected) return;
+      try {
+        const asks = await api.policyPending();
+        set((s) => ({
+          asks,
+          askCodes: Object.fromEntries(Object.entries(s.askCodes).filter(([id]) => asks.some((a) => a.id === id))),
+        }));
+        for (const a of asks) {
+          if (get().askCodes[a.id]) continue;
+          const code = await api.policyCode(a.id);
+          set((s) => ({ askCodes: { ...s.askCodes, [a.id]: code } }));
+        }
+      } catch (e) {
+        fail("Show requests waiting for approval")(e);
+      }
+    },
+
+    answerAsk: async (id, allow, forSession) => {
+      try {
+        await api.policyAnswer(id, allow, forSession);
+      } catch (e) {
+        fail("Answer the request")(e);
+      }
+      await get().refreshAsks();
     },
 
     showError: (e, what) => set({ error: asAmiriError(e, what) }),

@@ -16,6 +16,9 @@
     "allow-session-detach",
     "allow-session-input",
     "allow-session-resize",
-    "allow-session-kill"
+    "allow-session-kill",
+    "allow-policy-pending",
+    "allow-policy-code",
+    "allow-policy-answer"
   ]
 }

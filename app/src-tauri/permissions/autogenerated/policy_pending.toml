@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-policy-pending"
+description = "Enables the policy_pending command without any pre-configured scope."
+commands.allow = ["policy_pending"]
+
+[[permission]]
+identifier = "deny-policy-pending"
+description = "Denies the policy_pending command without any pre-configured scope."
+commands.deny = ["policy_pending"]
