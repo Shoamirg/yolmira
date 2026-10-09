@@ -75,6 +75,33 @@ Reviewer, 2026-10-09: done before Phase 1 closes. Code: `crates/yolmira/src/daem
 
 In normal use (clients that keep up) the daemon stays in the tens of MB (memory probe above). The largest terms outside any budget are the request-line limit and the broadcast buffers. Follow-ups, not now: a smaller request-line limit for everything except `session.input`; binary or raw framing for output instead of base64 in JSON (base64 is what turns a 256 KiB chunk into ~350 KB).
 
+**Results** (`b1ce605` to `db112bc`):
+
+- **Unit tests:** `outbox` (9 tests: exact accounting, all-or-nothing, the in-flight line, order kept when one session's output is dropped, control backpressure, waking on room, the per-connection floor, stalls, close) and `slots` (3 tests).
+- **Integration tests** (`output_budget.rs`), all pass in parallel runs:
+
+  | Test | connection high water | daemon high water | resyncs |
+  |---|---|---|---|
+  | `slow_client_stays_within_its_budget` | 8.0 of 8.0 MiB | 7.5 of 64.0 MiB | 117 to 129 |
+  | `many_slow_clients_stay_within_the_daemon_budget` (12 slow clients on 3 shells, plus a fast one) | 7.9 to 8.0 of 8.0 MiB | 53.5 to 64.0 of 64.0 MiB | 510; the fast client 0 |
+  | `fast_client_on_the_same_shell_is_unaffected` | 8.0 of 8.0 MiB | 7.5 of 64.0 MiB | the fast client 0 |
+  | `resynced_client_output_is_correct_and_gap_free` | | | the slow client's text after its last snapshot is exactly the end of the fast client's |
+
+- **Connection tests** (`connections.rs`), 3/3 several times:
+  - a never-reading client is disconnected after 30 s as "not reading" and logged as `ipc.client_stalled`; meanwhile the UI got its approval prompt in 0.9 to 1.2 ms and answered it, before and after the disconnect;
+  - one process opening 128 connections gets 16, and the UI still connects;
+  - 8 processes fill all 128 slots, a 9th gets none, and the UI still gets in through its reserve.
+- **A client slower than its shell is resynced repeatedly:** about 8 times a second for the 20 ms-per-read test client. Each resync waits until that client has drained room for a whole snapshot, so the rate is paced by the client's own reading, and memory stays within the budgets.
+- **Whole suite:** `scripts/test.ps1` (17 test binaries) passed in 3 of 4 runs after the fix. E2E 9/9 (46.6 s). UI unit tests 5/5. App crate 13/13. clippy and fmt clean.
+
+**Open: one daemon crash, cause unknown.** In 1 of 4 full-suite runs, `a_never_reading_client_is_disconnected_and_the_ui_still_answers_prompts` failed: about 22 s into the test its daemon was no longer reported as running. The helper then started a new `yolmirad` on the same home, which crashed during startup:
+- exception `0xC0000409` at offset `0x6c80d1` inside `yolmirad.exe` (Windows Application log, 20:48:49);
+- the process had started at 20:48:49.407.
+
+On Windows, Rust aborts with that code, for example after a stack overflow or a panic during a panic. No trace survived: a detached daemon's stderr went nowhere, its log writer is non-blocking, and the test deleted its home. Not reproduced in 3 direct runs of that binary, 3 parallel runs of the budget tests, or 3 more full-suite runs. A second `yolmirad` on a live instance exits cleanly ("another yolmirad already serves this instance"), so that path isn't it.
+
+Since `db112bc`, a detached daemon's stderr and panics (with backtrace) go to `logs\yolmirad-stderr.log`, written synchronously (test `crash_log_records_a_panic`), and a failing test keeps its home and prints the path. If it happens again, the reason will be on disk.
+
 ## Earlier automated runs (old name, superseded)
 
 **Superseded by the rename (decisions.md 2026-10-09, AMIRI → Yolmira).** The results below were run on the old-name build and are kept as a record. The exit checks are rerun on the renamed build, and those results are the ones that count. Also from the old build: `wsl_shutdown_while_attached` passed 3 times on the throwaway distro `amiri-throwaway` (Alpine 3.24.2 minirootfs, SHA-256 `c5ca053c…90388677`, GPG signature by Alpine's key `0482 D840 22F5 2DF1 C4E7 CD43 293A CD09 07D9 495A` checked), once warm and twice from a stopped distro. A soak was stopped after 12 min for the rename: by then the daemon's private memory was flat at about 190 MB from minute 2 on, with 213 to 215 handles.
