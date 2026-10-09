@@ -55,25 +55,25 @@ Each test has its own daemon instance (`--instance`/`--home`), its own UI proces
 
 ## After acceptance (2026-10-05 to 2026-10-09)
 
-The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are met (.., pushed). Further findings while doing so:
+The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are met (`41e8bc5`..`53f7739`, pushed). Further findings while doing so:
 
-1. **E2E runs used stale binaries.**  sets  (supply chain), which also makes npm skip  scripts:  never ran its  build. Runs since Slice C tested whatever binaries a manual build had left; results from 2026-10-06 () and the first 2026-10-09 run don't count. Fixed (, ): the  script builds explicitly, and the harness fails if any binary is older than its own sources, printing each build time.
-2. **The UIs that "crashed" mid-run were closed by hand**, twice (the user confirmed both; exit code 0, window closed). An empty  hid it: the stale UI build still used a buffered writer whose last lines are lost when Tauri ends the process. Now (): unbuffered log;  on every exit the UI sees (window closed, exit request, startup failure); panics logged; a run marker (pid + process start time) makes the next start report a UI that was killed or crashed. E2E asserts both after a close and after .
-3. **Off-screen test windows.** Windows ignores an off-screen position given at window creation (the first attempt opened on-screen); moving the built window works (). Comparison on the same build (), WebView2 154.0.4258.62:
+1. **E2E runs used stale binaries.** `app/.npmrc` sets `ignore-scripts=true` (supply chain), which also makes npm skip `pre` scripts: `npm run e2e` never ran its `pree2e` build. Runs since Slice C tested whatever binaries a manual build had left; the 2026-10-06 run (`53f7739`) and the first 2026-10-09 run don't count. Fixed (`488424f`, `3707c4e`): the `e2e` script builds explicitly, and the harness fails if any binary is older than its own sources, printing each build time.
+2. **The UIs that "crashed" mid-run were closed by hand**, twice (the user confirmed both; exit code 0, window closed). An empty `ui.log` hid it: the stale UI build still used a buffered writer whose last lines are lost when Tauri ends the process. Now (`c9d5ae2`): unbuffered log; `UI exiting: <reason>` on every exit the UI sees (window closed, exit request, startup failure); panics logged; a run marker (pid + process start time) makes the next start report a UI that was killed or crashed. E2E asserts both, after a close and after `taskkill /F`.
+3. **Off-screen test windows.** Windows ignores an off-screen position given at window creation (the first attempt opened on-screen); moving the built window works (`c0c210d`). Comparison on the same build (`3707c4e`), WebView2 154.0.4258.62:
 
-| Test | On-screen | Off-screen (-4000,-4000) |
-|---|---|---|
-| ui_close_reopen_shell_survives | ok, 2.71 s | ok, 2.59 s |
-| ui_killed_shell_survives | ok, 2.20 s | ok, 2.01 s |
-| ui_started_from_closed_terminal | ok, 4.81 s | ok, 4.85 s |
-| two_uis_same_session | ok, 1.61 s | ok, 1.58 s |
-| daemon_down_banner_and_reconnect | ok, 2.73 s | ok, 2.67 s |
-| output_flood_flows_through | ok, 15.73 s | ok, 15.58 s |
-| Whole run | 6/6, 36.8 s | 6/6, 36.3 s |
+   | Test | On-screen | Off-screen (-4000,-4000) |
+   |---|---|---|
+   | ui_close_reopen_shell_survives | ok, 2.71 s | ok, 2.59 s |
+   | ui_killed_shell_survives | ok, 2.20 s | ok, 2.01 s |
+   | ui_started_from_closed_terminal | ok, 4.81 s | ok, 4.85 s |
+   | two_uis_same_session | ok, 1.61 s | ok, 1.58 s |
+   | daemon_down_banner_and_reconnect | ok, 2.73 s | ok, 2.67 s |
+   | output_flood_flows_through | ok, 15.73 s | ok, 15.58 s |
+   | Whole run | 6/6, 36.8 s | 6/6, 36.3 s |
 
-   Every page reported  off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default;  shows the windows. The console window of  still appears briefly.
-4. **WebView2 updated itself** (154.0.4258.53 → .62) between runs; the harness stopped with the planned message, and the matching driver was pinned (: zip SHA-256 recorded, signature Valid, O=Microsoft Corporation).
-5. **CI did not run** for  (run 37928451747): GitHub refused to start the job over the account's billing ("recent account payments have failed or your spending limit needs to be increased"). Not a code failure; rerun once billing is fixed.
+   Every page reported `document.visibilityState = visible` off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default (`6685a08`); `AMIRI_E2E_ONSCREEN=1` shows the windows. The console window of `ui_started_from_closed_terminal` still appears briefly.
+4. **WebView2 updated itself** (154.0.4258.53 → .62) between runs; the harness stopped with the planned message, and the matching driver was pinned (`7419ae6`: zip SHA-256 recorded, signature Valid, O=Microsoft Corporation).
+5. **CI did not run** for `53f7739` (run 37928451747): GitHub refused to start the job over the account's billing ("recent account payments have failed or your spending limit needs to be increased"). Not a code failure; rerun once billing is fixed.
 
 ## Plan deviations
 
