@@ -4,13 +4,50 @@ Order (decisions.md 2026-10-09): these run before admin PowerShell step 1 and Ph
 
 | Check | Who | Status |
 |---|---|---|
-| Close UI / reopen / shell survives, fresh build | automated (E2E) | see below |
-| 1-hour soak (`soak_1h_output_flood`, `YOLMIRA_SOAK=3600`) | automated | see below |
-| WSL terminate on a throwaway distro (`wsl_shutdown_while_attached`) | automated | see below |
+| Close UI / reopen / shell survives, fresh build | automated (E2E) | 9/9 at `9f9acb5`; rerun after the fix |
+| 1-hour soak, overload path (client fell behind) | automated | passed `9f9acb5`; not the exit check |
+| 1-hour soak with a client that keeps up (`soak_1h_output_flood`, `YOLMIRA_SOAK=3600`) | automated | after the output-budget fix |
+| WSL terminate on a throwaway distro (`wsl_shutdown_while_attached`) | automated | 3/3 at `9f9acb5`; rerun after the fix |
 | Logoff while the daemon runs detached | the user, steps below | pending |
 | Pipe-owner rejection with a second Windows account (H1) | the user, steps below | pending |
 
-## Automated checks
+## Yolmira build (`9f9acb5`)
+
+- **Close UI / reopen / shell survives:** E2E 9/9 (47.7 s), every binary built after its newest source (`yolmira-app.exe` 14:37:29Z, `yolmira.exe`/`yolmirad.exe` 14:33:46Z; sources 14:36:17Z / 14:33:41Z).
+- **WSL terminate:** `wsl_shutdown_while_attached` 3/3 on `amiri-throwaway` (one run after `wsl --terminate`), 0.5 to 1.0 s; the user's distros untouched.
+
+### 1-hour soak, overload path
+
+`soak_1h_output_flood` with `YOLMIRA_SOAK=3600`, 19:38:42 to 20:39:04: **passed** in 3619 s. The flood ran the full hour, the marker after it arrived, and the shell's exit status (7) arrived after it. Daemon (pid 924), sampled once a minute:
+
+| | private | working set | handles |
+|---|---|---|---|
+| minute 1 | 166.9 MB | 133.3 MB | 215 |
+| minutes 3 to 58 | 145.5 to 191.8 MB, mean 189.3 MB | 84.1 to 175.7 MB | 213 |
+| after the flood | 116.0 MB | 79.3 MB | 213 |
+
+Flat: no growth over the hour. But this is the **overload path**, not the exit check: the test client fell behind (below) and the daemon held its backlog at the per-connection cap the whole time. It is recorded as such; the exit check is the soak with a client that keeps up, after the fix.
+
+### Why ~190 MB: the breakdown
+
+`crates/yolmira/tests/memory.rs` (`YOLMIRA_MEMPROBE=<flood seconds>`) measures the daemon's private bytes at each stage, on its own daemon:
+
+| Stage | debug (60 s flood) | release (30 s flood) |
+|---|---|---|
+| idle, no sessions | 7.9 MB | 7.9 MB |
+| 1 PowerShell session, client attached | 8.7 MB | 8.5 MB |
+| after the flood, client keeping up | 12.9 MB | 10.7 MB |
+| 8 sessions | 14.5 MB | 12.6 MB |
+| flood with a **slow client** (reads one notification per 20 ms) | **194.1 MB** | **181.9 MB** |
+| slow client gone | 16.5 MB | 14.9 MB |
+
+- **Debug build:** no; release behaves the same.
+- **SQLite cache:** default (about 2 MB); no pragmas set.
+- **Scrollback:** 2 MiB per session, as designed.
+- **Soak output held in memory:** yes, but per slow client, not the hour's output. The soak's test client searched all text received so far after every chunk (`expect_within`), which grows with the output; it fell behind, and the daemon kept it fed with scrollback replays. A connection's outbox was capped at 256 *messages*, not bytes: up to 256 lines of 256 KiB replay chunks (~350 KB each in base64 JSON, ~512 KiB allocated after doubling) ≈ 128 MiB, plus the session's broadcast buffer (1024 chunks of up to 16 KiB ≈ 16 MiB), the ring and its snapshot (≈ 4 MiB) and the baseline (8 MB): ≈ 156 MB by arithmetic; the remaining 25 to 35 MB is not itemized (likely allocator overhead).
+- Memory returns when the slow client leaves (16.5 MB), so it is bounded and flat, but large, and a real UI that falls behind could cost this per attached shell. Fixed in the output-budget commit (decisions.md 2026-10-09).
+
+## Earlier automated runs (old name, superseded)
 
 **Superseded by the rename (decisions.md 2026-10-09, AMIRI → Yolmira).** The results below were run on the old-name build and are kept as a record. The exit checks are rerun on the renamed build, and those results are the ones that count. Also from the old build: `wsl_shutdown_while_attached` passed 3 times on the throwaway distro `amiri-throwaway` (Alpine 3.24.2 minirootfs, SHA-256 `c5ca053c…90388677`, GPG signature by Alpine's key `0482 D840 22F5 2DF1 C4E7 CD43 293A CD09 07D9 495A` checked), once warm and twice from a stopped distro. A soak was stopped after 12 min for the rename: by then the daemon's private memory was flat at about 190 MB from minute 2 on, with 213 to 215 handles.
 
