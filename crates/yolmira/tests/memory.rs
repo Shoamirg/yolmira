@@ -7,7 +7,7 @@ mod support;
 
 use serde_json::json;
 use std::time::Duration;
-use support::shell::{not_run, Shell, PTY_TEST};
+use support::shell::{not_run, Shell};
 use support::*;
 
 /// (private MB, working set MB) of a process, via Windows PowerShell (locale-neutral numbers).
@@ -45,7 +45,7 @@ fn memory_breakdown() {
     let pid = env.start()["pid"].as_u64().expect("pid");
     std::thread::sleep(Duration::from_secs(2));
     stage(pid, "daemon idle, no sessions");
-    env.block_on(Duration::from_secs(secs) + PTY_TEST * 4, async {
+    env.block_on(Duration::from_secs(secs * 2 + 300), async {
         let mut s = Shell::open(&env, json!({ "kind": "powershell" }), None).await.expect("session");
         s.wait_powershell_prompt().await;
         stage(pid, "1 PowerShell session, idle, client attached");
@@ -67,5 +67,28 @@ fn memory_breakdown() {
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
         stage(pid, "8 sessions (1 flooded + 7 idle cmd)");
+        drop(more);
+        // A client that reads slower than the shell writes (like the soak's test client,
+        // whose search over all text received grows with it): the daemon keeps it fed with
+        // scrollback replays, so its per-client queues fill to their caps.
+        let mut slow = Shell::open(&env, json!({ "kind": "powershell" }), None).await.expect("session");
+        slow.wait_powershell_prompt().await;
+        slow.send(&flood.replace("YOLMIRA_DONE", "YOLMIRA_SLOW")).await;
+        let until = tokio::time::Instant::now() + Duration::from_secs(secs);
+        let mut peak = 0.0f64;
+        let mut next_sample = tokio::time::Instant::now();
+        while tokio::time::Instant::now() < until {
+            slow.pump_once().await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            if tokio::time::Instant::now() >= next_sample {
+                peak = peak.max(memory_mb(pid).0);
+                next_sample += Duration::from_secs(5);
+            }
+        }
+        stage(pid, &format!("slow client during a {secs} s flood"));
+        println!("MEMPROBE peak private during the slow-client flood: {peak:.1} MB");
+        slow.drop_connections();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        stage(pid, "slow client gone (heap kept or returned?)");
     });
 }
