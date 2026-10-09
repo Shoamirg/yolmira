@@ -1,10 +1,12 @@
 //! `amiri`: the command-line client. Every command talks to the daemon over its pipe.
 
+mod approve;
 mod attach;
 mod commands;
 mod console;
 pub mod doctor;
 mod output;
+mod project;
 mod shell;
 
 use clap::{Parser, Subcommand};
@@ -41,6 +43,28 @@ pub enum Command {
     },
     /// Check this machine for problems that break AMIRI or other tools (no daemon needed).
     Doctor,
+    /// Answer a request the policy waits on (the code is shown in the AMIRI window).
+    Approve {
+        /// The request's id (from `--list` or the AMIRI window).
+        id: Option<String>,
+        /// List the requests waiting for an answer.
+        #[arg(long)]
+        list: bool,
+        /// The one-time code the AMIRI window shows for this request.
+        #[arg(long)]
+        code: Option<String>,
+        /// Deny instead of approving.
+        #[arg(long)]
+        deny: bool,
+        /// Approve the same action (and project) until the daemon stops.
+        #[arg(long)]
+        session: bool,
+    },
+    /// Registered projects: a name for a folder that shells can start in.
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
     /// Show the event log.
     Events {
         /// Only events with seq greater than this.
@@ -67,9 +91,12 @@ pub enum ShellAction {
         /// WSL distribution (with --kind wsl).
         #[arg(long)]
         distro: Option<String>,
-        /// Working folder (default: your profile folder).
+        /// Working folder (default: the project's folder, else your profile folder).
         #[arg(long)]
         cwd: Option<String>,
+        /// A registered project: start in its folder; its policy rules apply.
+        #[arg(long)]
+        project: Option<String>,
         /// Attach right away.
         #[arg(long)]
         attach: bool,
@@ -80,6 +107,16 @@ pub enum ShellAction {
     Attach { id: String },
     /// End a session's shell.
     Kill { id: String },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProjectAction {
+    /// Register a folder under a name (registering a name again moves it).
+    Add { name: String, path: String },
+    /// List registered projects.
+    List,
+    /// Forget a project (its folder is untouched).
+    Remove { name: String },
 }
 
 #[derive(Subcommand, Debug)]

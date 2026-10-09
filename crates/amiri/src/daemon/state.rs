@@ -28,6 +28,8 @@ pub struct State {
     next_connection: AtomicU64,
     auth_failures: Mutex<HashMap<String, (Instant, u64)>>,
     pub sessions: super::sessions::Sessions,
+    pub agent_jobs: super::peer::AgentJobs,
+    pub policy: super::policy::Gate,
 }
 
 impl State {
@@ -44,6 +46,8 @@ impl State {
             next_connection: AtomicU64::new(1),
             auth_failures: Mutex::new(HashMap::new()),
             sessions: super::sessions::Sessions::default(),
+            agent_jobs: super::peer::AgentJobs::default(),
+            policy: super::policy::Gate::default(),
         }
     }
 

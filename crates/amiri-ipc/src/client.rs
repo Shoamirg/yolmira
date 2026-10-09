@@ -26,6 +26,8 @@ const BUSY_RETRY: Duration = Duration::from_millis(50);
 const BUSY_RETRIES: u32 = 100;
 /// Upper bound for one request/response round trip; the daemon answers in milliseconds.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Longest a gated call can wait: the daemon's ASK limit (600 s) plus a margin.
+pub const ASK_LIMIT: Duration = Duration::from_secs(630);
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -187,7 +189,18 @@ impl Client {
     }
 
     pub async fn call_value(&mut self, method: &str, params: Value) -> Result<Value, ClientError> {
-        tokio::time::timeout(CALL_TIMEOUT, self.round_trip(method, params))
+        self.call_value_within(method, params, CALL_TIMEOUT).await
+    }
+
+    /// A call that may legitimately take longer than `CALL_TIMEOUT`: one the policy
+    /// gate holds until someone approves it (up to `ASK_LIMIT`).
+    pub async fn call_value_within(
+        &mut self,
+        method: &str,
+        params: Value,
+        limit: Duration,
+    ) -> Result<Value, ClientError> {
+        tokio::time::timeout(limit, self.round_trip(method, params))
             .await
             .unwrap_or(Err(ClientError::Timeout))
     }

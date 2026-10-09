@@ -1,7 +1,9 @@
 //! Command implementations.
 
 use super::output::Out;
-use super::{exit, shell, Cli, Command, DaemonAction, ShellAction};
+use super::{
+    approve, exit, project, shell, Cli, Command, DaemonAction, ProjectAction, ShellAction,
+};
 use amiri_core::{AmiriError, Event};
 use amiri_ipc::protocol::{
     methods, notifications, DaemonStatus, EventsListParams, EventsSubscribeParams,
@@ -44,13 +46,29 @@ pub async fn run(cli: Cli) -> u8 {
             follow,
         } => events(&out, instance, after, limit, kind, follow).await,
         Command::Doctor => Ok(doctor(&out)),
+        Command::Approve {
+            id,
+            list,
+            code,
+            deny,
+            session,
+        } => match (list, id) {
+            (true, _) | (false, None) => approve::list(&out, instance).await,
+            (false, Some(id)) => approve::answer(&out, instance, id, code, deny, session).await,
+        },
+        Command::Project { action } => match action {
+            ProjectAction::Add { name, path } => project::add(&out, instance, name, path).await,
+            ProjectAction::List => project::list(&out, instance).await,
+            ProjectAction::Remove { name } => project::remove(&out, instance, name).await,
+        },
         Command::Shell { action } => match action {
             ShellAction::New {
                 kind,
                 distro,
                 cwd,
+                project,
                 attach,
-            } => shell::new(&out, instance, &kind, distro, cwd, attach).await,
+            } => shell::new(&out, instance, &kind, distro, cwd, project, attach).await,
             ShellAction::List => shell::list(&out, instance).await,
             ShellAction::Attach { id } => shell::attach(&out, instance, id).await,
             ShellAction::Kill { id } => shell::kill(&out, instance, id).await,
@@ -144,9 +162,8 @@ async fn stop(out: &Out, instance: &Instance) -> Result<u8, AmiriError> {
         return Ok(exit::NOT_RUNNING);
     };
     let pid = c.hello.pid;
-    c.call_value(methods::DAEMON_STOP, json!({}))
-        .await
-        .map_err(client_error)?;
+    // Stopping ends every shell: the policy may ask for approval first.
+    approve::gated_call(instance, &mut c, methods::DAEMON_STOP, json!({})).await?;
     // Return only once the process is gone, so an immediate `start` gets a fresh daemon.
     let exited = tokio::task::spawn_blocking(move || wait_pid_exit(pid, STOP_TIMEOUT))
         .await

@@ -1,14 +1,17 @@
 //! Method handlers. Mutating methods record their event (protocol `METHODS` table).
 //! Store reads run on the blocking pool and in bounded pages.
 
+use super::policy::{self, Check};
+use super::project_handlers as ph;
 use super::server::{to_line, Conn};
 use super::session_handlers::{self as sh, ConnTasks};
 use super::state::State;
 use amiri_core::event::kinds;
+use amiri_core::policy::actions;
 use amiri_core::{AmiriError, Event, NewEvent};
 use amiri_ipc::protocol::{
     codes, methods, notifications, DaemonStatus, EventsListParams, EventsSubscribeParams,
-    Notification, Request, Response, RpcError,
+    Notification, Request, Response, RpcError, SessionCreateParams, SessionIdParams,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -36,8 +39,11 @@ pub async fn dispatch(
 ) -> Outcome {
     let client = conn.client.as_str();
     let result = match req.method.as_str() {
-        methods::SESSION_CREATE => match params(req) {
-            Ok(p) => sh::create(state, p, client).await,
+        methods::SESSION_CREATE => match params::<SessionCreateParams>(req) {
+            Ok(p) => match policy::check(state, create_check(&p, conn)).await {
+                Ok(()) => sh::create(state, p, client).await,
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         },
         methods::SESSION_LIST => sh::list(state).await,
@@ -53,12 +59,45 @@ pub async fn dispatch(
             Ok(p) => sh::resize(state, p, client).await,
             Err(e) => Err(e),
         },
-        methods::SESSION_KILL => match params(req) {
-            Ok(p) => sh::kill(state, p, client).await,
+        methods::SESSION_KILL => match params::<SessionIdParams>(req) {
+            Ok(p) => match policy::check(state, kill_check(state, &p, conn)).await {
+                Ok(()) => sh::kill(state, p, client).await,
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         },
         methods::DAEMON_STATUS => status(state),
-        methods::DAEMON_STOP => return stop(state, req, client),
+        methods::DAEMON_STOP => {
+            let check = Check {
+                action: actions::DAEMON_STOP,
+                project: None,
+                detail: json!({ "running_shells": state.sessions.all().iter().filter(|s| !s.has_exited()).count() }),
+                client,
+                connection: conn.id,
+            };
+            return match policy::check(state, check).await {
+                Ok(()) => stop(state, req, client),
+                Err(e) => Outcome::Reply(Response::err(req.id, e)),
+            };
+        }
+        methods::POLICY_PENDING => Ok(json!(state.policy.pending())),
+        methods::POLICY_ANSWER => {
+            params(req).and_then(|p| policy::answer(state, p, client, &conn.peer))
+        }
+        methods::POLICY_CODE => {
+            params(req).and_then(|p| policy::code(state, p, client, &conn.peer))
+        }
+        methods::PROJECT_ADD => match params(req) {
+            Ok(p) => ph::add(state, p, conn).await,
+            Err(e) => Err(e),
+        },
+        methods::PROJECT_LIST => ph::list(state),
+        methods::PROJECT_REMOVE => match params(req) {
+            Ok(p) => ph::remove(state, p, conn).await,
+            Err(e) => Err(e),
+        },
+        #[cfg(debug_assertions)]
+        DEBUG_SPAWN_IN_AGENT_JOB => params(req).and_then(|p| spawn_in_agent_job(state, p)),
         methods::EVENTS_LIST => match params::<EventsListParams>(req) {
             Ok(p) => list(state, p).await,
             Err(e) => Err(e),
@@ -86,6 +125,64 @@ pub async fn dispatch(
         Ok(v) => Response::ok(req.id, v),
         Err(e) => Response::err(req.id, e),
     })
+}
+
+fn create_check<'a>(p: &SessionCreateParams, conn: &'a Conn) -> Check<'a> {
+    Check {
+        action: actions::SESSION_CREATE,
+        project: p.project.clone(),
+        detail: json!({ "shell": p.shell, "cwd": p.cwd, "project": p.project }),
+        client: &conn.client,
+        connection: conn.id,
+    }
+}
+
+/// The shell's own project decides which rules apply to killing it.
+fn kill_check<'a>(state: &State, p: &SessionIdParams, conn: &'a Conn) -> Check<'a> {
+    let session = state.sessions.get(&p.id);
+    Check {
+        action: actions::SESSION_KILL,
+        project: session.as_ref().and_then(|s| s.project.clone()),
+        detail: json!({
+            "id": p.id,
+            "shell": session.as_ref().map(|s| s.shell.clone()),
+            "cwd": session.as_ref().map(|s| s.cwd.clone()),
+            "pid": session.as_ref().and_then(|s| s.pty.pid()),
+        }),
+        client: &conn.client,
+        connection: conn.id,
+    }
+}
+
+/// Debug builds only, for tests: run a program inside a new agent job, as Phase 4
+/// will run agents (ARCHITECTURE §9.6). It lets a test play an agent that tries to
+/// approve its own request. Anyone with the token can already start shells, so this
+/// gives a client nothing new; release builds don't have it.
+#[cfg(debug_assertions)]
+pub const DEBUG_SPAWN_IN_AGENT_JOB: &str = "debug.spawn_in_agent_job";
+
+#[cfg(debug_assertions)]
+#[derive(serde::Deserialize)]
+struct SpawnInJobParams {
+    exe: String,
+    args: Vec<String>,
+}
+
+#[cfg(debug_assertions)]
+fn spawn_in_agent_job(state: &State, p: SpawnInJobParams) -> Result<Value, RpcError> {
+    use amiri_ipc::win::process::{SpawnOptions, CREATE_NO_WINDOW};
+    let fail = |e: std::io::Error| RpcError::new(codes::AMIRI_ERROR, e.to_string());
+    let job = state.agent_jobs.create().map_err(fail)?;
+    let process = job
+        .spawn(&SpawnOptions {
+            exe: p.exe.into(),
+            args: p.args,
+            env: None,
+            cwd: None,
+            flags: CREATE_NO_WINDOW,
+        })
+        .map_err(fail)?;
+    Ok(json!({ "pid": process.pid() }))
 }
 
 fn stop(state: &State, req: &Request, client: &str) -> Outcome {

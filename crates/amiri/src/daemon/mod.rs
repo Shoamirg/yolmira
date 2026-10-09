@@ -5,6 +5,9 @@
 mod auth;
 mod console;
 mod handlers;
+mod peer;
+mod policy;
+mod project_handlers;
 mod server;
 mod session_handlers;
 mod sessions;

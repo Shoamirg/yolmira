@@ -5,7 +5,7 @@
 // locale-neutral values: markers the shell computes, numbers, exit codes, pids.
 // Screens are read from xterm's DOM rows: the text the user sees, no test hooks.
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -102,6 +102,14 @@ export class Instance {
   constructor(label) {
     this.name = `e2e-${label}-${randomUUID().slice(0, 8)}`;
     this.home = mkdtempSync(join(tmpdir(), "amiri-e2e-"));
+    // Its own policies.toml (never the user's): cleanup stops the daemon without
+    // asking. The UI tests of the ASK prompt write their own.
+    this.writePolicies('[global]\n"daemon.stop" = "allow"\n');
+  }
+  writePolicies(toml) {
+    const dir = join(this.home, "config");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "policies.toml"), toml);
   }
   args() {
     return ["--instance", this.name, "--home", this.home];

@@ -61,6 +61,9 @@ pub mod kinds {
     pub const POLICY_ASK: &str = "policy.ask";
     /// A client answered a `policy.ask`.
     pub const POLICY_ANSWERED: &str = "policy.answered";
+    /// An answer (or a request for an approval code) was refused: from inside an
+    /// agent job, a wrong code, or not the UI.
+    pub const POLICY_ANSWER_REFUSED: &str = "policy.answer_refused";
     /// Every policy verdict, automatic or answered (ARCHITECTURE §6.3).
     pub const POLICY_DECISION: &str = "policy.decision";
 }

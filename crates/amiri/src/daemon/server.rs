@@ -3,6 +3,7 @@
 
 use super::auth::authenticate;
 use super::handlers::{self, Outcome};
+use super::peer::Peer;
 use super::session_handlers::ConnTasks;
 use super::state::State;
 use amiri_ipc::framing::{read_line, MAX_LINE};
@@ -65,6 +66,7 @@ impl PipeFactory {
 pub struct Conn {
     pub client: String,
     pub id: u64,
+    pub peer: Peer,
 }
 
 /// Accept connections until the task is dropped.
@@ -96,6 +98,11 @@ async fn connection(
     pipe: NamedPipeServer,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) {
+    // Who connected, as Windows reports it, before any byte is read.
+    let peer = {
+        use std::os::windows::io::AsRawHandle;
+        Peer::of_pipe(pipe.as_raw_handle())
+    };
     let (r, mut w) = tokio::io::split(pipe);
     let mut reader = BufReader::new(r);
     let (tx, mut rx) = mpsc::channel::<String>(OUTBOX);
@@ -116,6 +123,7 @@ async fn connection(
         let conn = Conn {
             client,
             id: connection,
+            peer,
         };
         serve_requests(&state, &mut reader, &tx, &conn, &mut tasks).await;
         state.client_disconnected();
@@ -136,7 +144,7 @@ async fn serve_requests<R: tokio::io::AsyncBufRead + Unpin>(
     tasks: &mut ConnTasks,
 ) {
     let client = conn.client.as_str();
-    tracing::debug!(client, connection = conn.id, "client authenticated");
+    tracing::debug!(client, connection = conn.id, pid = ?conn.peer.pid, "client authenticated");
     loop {
         let line = match read_line(reader, MAX_LINE).await {
             Ok(Some(line)) => line,

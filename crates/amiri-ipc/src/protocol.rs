@@ -26,6 +26,8 @@ pub mod codes {
     pub const UNAUTHORIZED: i64 = -32001;
     /// A policy rule or a client's answer said no (ARCHITECTURE §6.3).
     pub const POLICY_DENIED: i64 = -32002;
+    /// The calling process may not do this (e.g. approve from inside an agent job).
+    pub const FORBIDDEN: i64 = -32003;
 }
 
 pub mod methods {
@@ -43,6 +45,8 @@ pub mod methods {
     pub const SESSION_KILL: &str = "session.kill";
     pub const POLICY_PENDING: &str = "policy.pending";
     pub const POLICY_ANSWER: &str = "policy.answer";
+    /// The one-time approval code of a waiting request; for the UI only.
+    pub const POLICY_CODE: &str = "policy.code";
     pub const PROJECT_ADD: &str = "project.add";
     pub const PROJECT_LIST: &str = "project.list";
     pub const PROJECT_REMOVE: &str = "project.remove";
@@ -107,6 +111,7 @@ pub const METHODS: &[MethodSpec] = &[
     logged(methods::SESSION_KILL, kinds::SESSION_KILL_REQUESTED),
     read(methods::POLICY_PENDING),
     logged(methods::POLICY_ANSWER, kinds::POLICY_ANSWERED),
+    read(methods::POLICY_CODE),
     logged(methods::PROJECT_ADD, kinds::PROJECT_REGISTERED),
     read(methods::PROJECT_LIST),
     logged(methods::PROJECT_REMOVE, kinds::PROJECT_REMOVED),
@@ -363,6 +368,15 @@ pub struct PolicyAnswerParams {
     pub decision: AnswerDecision,
     #[serde(default)]
     pub scope: AnswerScope,
+    /// The one-time code the UI shows for this request. Required from any client
+    /// but the UI itself.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyIdParams {
+    pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

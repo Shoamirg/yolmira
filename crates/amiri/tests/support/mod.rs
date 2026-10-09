@@ -32,6 +32,11 @@ pub const CONNECT_LIMIT: Duration = Duration::from_secs(30);
 /// How much of the transcript a failure report shows.
 const TRANSCRIPT_TAIL: usize = 4000;
 
+/// Tests outside the policy suite kill shells and stop their daemon freely; the
+/// built-in defaults would make both ASK and hold the test (phase1-plan Slice D).
+pub const TEST_POLICIES: &str =
+    "[global]\n\"session.kill\" = \"allow\"\n\"daemon.stop\" = \"allow\"\n";
+
 /// Set by the CI workflow: the runner's job forbids breakaway, so detach tests are
 /// reported as not run instead of failing.
 pub const CI_NO_BREAKAWAY: &str = "AMIRI_CI_NO_BREAKAWAY";
@@ -43,12 +48,22 @@ impl TestEnv {
             .flatten()
             != Some(false);
         let name = format!("t{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
-        Self {
+        let env = Self {
             name,
             home: tempfile::tempdir().expect("temp home"),
             can_detach,
             transcript: Arc::default(),
-        }
+        };
+        env.write_policies(TEST_POLICIES);
+        env
+    }
+
+    /// Replace this instance's `policies.toml` (its own, under its home: never the
+    /// user's). The daemon reads it on every check.
+    pub fn write_policies(&self, toml: &str) {
+        let path = self.instance().policies_path();
+        std::fs::create_dir_all(path.parent().expect("config folder")).expect("config folder");
+        std::fs::write(&path, toml).expect("write policies.toml");
     }
 
     /// For tests of detaching itself. Returns false (test must return) only on CI with

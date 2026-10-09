@@ -1,5 +1,6 @@
 //! `amiri shell new | list | kill` (attach is in `attach.rs`).
 
+use super::approve::gated_call;
 use super::attach::{self, DEFAULT_SIZE};
 use super::commands::{client_error, connect_started};
 use super::console::window_size;
@@ -16,6 +17,7 @@ pub async fn new(
     kind: &str,
     distro: Option<String>,
     cwd: Option<String>,
+    project: Option<String>,
     attach_after: bool,
 ) -> Result<u8, AmiriError> {
     let mut c = connect_started(&instance).await?;
@@ -28,11 +30,11 @@ pub async fn new(
         Some(d) => json!({ "kind": kind, "distro": d }),
         None => json!({ "kind": kind }),
     };
-    let params = json!({ "shell": shell, "cwd": cwd, "cols": cols, "rows": rows });
-    let info: SessionInfo = c
-        .call(methods::SESSION_CREATE, params)
-        .await
-        .map_err(client_error)?;
+    let params =
+        json!({ "shell": shell, "cwd": cwd, "cols": cols, "rows": rows, "project": project });
+    let created = gated_call(&instance, &mut c, methods::SESSION_CREATE, params).await?;
+    let info: SessionInfo = serde_json::from_value(created)
+        .map_err(|e| AmiriError::new("Start a shell", "cli", e.to_string()))?;
     out.value(
         || format!("{} {} {}", info.id, info.shell, info.cwd),
         json!(info),
@@ -69,12 +71,8 @@ pub async fn list(out: &Out, instance: Instance) -> Result<u8, AmiriError> {
 
 pub async fn kill(out: &Out, instance: Instance, id: String) -> Result<u8, AmiriError> {
     let mut c = connect_started(&instance).await?;
-    c.call_value(
-        methods::SESSION_KILL,
-        json!(SessionIdParams { id: id.clone() }),
-    )
-    .await
-    .map_err(client_error)?;
+    let params = json!(SessionIdParams { id: id.clone() });
+    gated_call(&instance, &mut c, methods::SESSION_KILL, params).await?;
     out.value(
         || format!("{id} ending"),
         json!({ "id": id, "state": "ending" }),
