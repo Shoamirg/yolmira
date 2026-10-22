@@ -1,13 +1,13 @@
 # Phase 1 exit checks
 
-Order (decisions.md 2026-10-09): these run before admin PowerShell step 1 and Phase 2. Slice D acceptance still waits for one green CI run on the latest commit. Results are recorded here; the phase findings link this file.
+Order (decisions.md 2026-10-09): these run before admin PowerShell step 1 and Phase 2. Slice D acceptance still waits for one green CI run on the latest commit: CI first ran on 2026-10-22 (public repo, `e63f713`) and failed one test's precondition (below). Results are recorded here; the phase findings link this file.
 
 | Check | Who | Status |
 |---|---|---|
-| Close UI / reopen / shell survives, fresh build | automated (E2E) | 9/9 at `39f6c17`; rerun after the fix |
+| Close UI / reopen / shell survives, fresh build | automated (E2E) | 9/9 at `39f6c17`; 9/9 after the fix (`2ccd493` to `e3920c5`, results below) |
 | 1-hour soak, overload path (client fell behind) | automated | passed `39f6c17`; not the exit check |
-| 1-hour soak with a client that keeps up (`soak_1h_output_flood`, `YOLMIRA_SOAK=3600`) | automated | after the output-budget fix |
-| WSL terminate on a throwaway distro (`wsl_shutdown_while_attached`) | automated | 3/3 at `39f6c17`; rerun after the fix |
+| 1-hour soak with a client that keeps up (`soak_1h_output_flood`, `YOLMIRA_SOAK=3600`) | automated | **passed** 2026-10-22: 0 resyncs, daemon flat at ~11 MB |
+| WSL terminate on a throwaway distro (`wsl_shutdown_while_attached`) | automated | 3/3 at `39f6c17`; **3/3 at `e63f713`** |
 | Logoff while the daemon runs detached | the user, steps below | pending |
 | Pipe-owner rejection with a second Windows account (H1) | the user, steps below | pending |
 
@@ -101,6 +101,33 @@ In normal use (clients that keep up) the daemon stays in the tens of MB (memory 
 On Windows, Rust aborts with that code, for example after a stack overflow or a panic during a panic. No trace survived: a detached daemon's stderr went nowhere, its log writer is non-blocking, and the test deleted its home. Not reproduced in 3 direct runs of that binary, 3 parallel runs of the budget tests, or 3 more full-suite runs. A second `yolmirad` on a live instance exits cleanly ("another yolmirad already serves this instance"), so that path isn't it.
 
 Since `e3920c5`, a detached daemon's stderr and panics (with backtrace) go to `logs\yolmirad-stderr.log`, written synchronously (test `crash_log_records_a_panic`), and a failing test keeps its home and prints the path. If it happens again, the reason will be on disk.
+
+## After the output-budget fix (2026-10-22)
+
+Run at `e63f713`, whose code is that of `1a4e51d` (the history rewrite changed only Markdown, `.gitleaksignore` and old fixture lines). The test binaries were those built on 2026-10-09 from that code; `cargo test --no-run` rebuilt nothing.
+
+### 1-hour soak with a client that keeps up
+
+`pty.exe soak_1h_output_flood --nocapture` with `YOLMIRA_SOAK=3600`, started 16:03: **passed** in 3600.6 s. The flood ran the full hour, the markers after it arrived, and the shell's exit status (7) arrived after them. The test's own report:
+
+- **The client kept up:** 0 resyncs beyond the attach replay; its connection's queued output peaked at 121 KiB of the 8 MiB budget; the daemon-wide budget was never used (high water 0).
+- **Daemon** (pid 27644), sampled once a minute by a separate script:
+
+  | | private | working set | handles |
+  |---|---|---|---|
+  | minute 1 (startup) | 5.4 MB | 14.7 MB | 106 |
+  | minutes 2 to 60 (59 samples) | 10.7 to 11.3 MB, mean 10.8 MB | 24.7 to 25.0 MB | 210 to 212 |
+  | last sample | 10.8 MB | 25.0 MB | 210 |
+
+Flat for the hour, and about 18× less than the overload-path soak's ~190 MB. An earlier run the same day (through `scripts/test.ps1`, before the history rewrite, the same code) also passed in 3600.7 s, but the harness hid the passing test's report and no samples were taken; it is not counted.
+
+### WSL terminate
+
+`wsl_shutdown_while_attached` **3/3** (0.5 to 0.7 s): once warm, twice after `wsl --terminate amiri-throwaway`. The throwaway distro had to be rebuilt first: its disk had been in a temporary folder that was cleaned, and the first attempt failed on WSL's `MountDisk/ERROR_FILE_NOT_FOUND`, before any Yolmira code ran. Rebuilt from the same Alpine 3.24.2 minirootfs (SHA-256 `c5ca053c…90388677` matched the published checksum and the 2026-10-09 record; GPG signature good, Alpine's key `0482 D840 22F5 2DF1 C4E7 CD43 293A CD09 07D9 495A`), now kept in `%LOCALAPPDATA%\amiri-throwaway`. The user's distros were untouched.
+
+### CI (first run, public repository)
+
+Run `39764484176` on `e63f713` (GitHub-hosted `windows-latest`, 2 vCPU): every test binary passed except `output_budget`, where `many_slow_clients_stay_within_the_daemon_budget` failed its precondition, not a budget: connection high water 5.4 of 8.0 MiB, daemon high water 58.2 of 64.0 MiB, **0 resyncs**. On the runner the three floods wrote too little for 12 slow clients to overrun a budget, so the test proved nothing and said so (its message wrongly reads "fell behind"). Locally the same test resyncs about 510 times. Fix proposed: slower slow clients in that test, and a correct message.
 
 ## Earlier automated runs (old name, superseded)
 
