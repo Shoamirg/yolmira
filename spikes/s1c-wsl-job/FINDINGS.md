@@ -1,7 +1,7 @@
 # Spike S1c — WSL processes under a kill-on-close job: findings
 
 - Date: 2026-09-24
-- Raw evidence: `findings.json`: clean commit `5074fec`, `"elevated": false` (Medium integrity), exit 0. Distro Ubuntu-22.04 (WSL 2.7.14, tmux 3.2a).
+- Raw evidence: `findings.json`: clean commit `9eacfd8`, `"elevated": false` (Medium integrity), exit 0. Distro Ubuntu-22.04 (WSL 2.7.14, tmux 3.2a).
 - Method: a host process (stands in for `amirid`) joins a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, then starts two things through `wsl.exe` (both `wsl.exe` processes are in the job): a foreground `sleep 607`, and `tmux new-session -d -s amiri_s1c 'sleep 613'`. The parent kills the host with `TerminateProcess` and checks the Linux side from outside the job with `pgrep -fx` / `tmux has-session` (fixed tokens only, locale-neutral). The spike cleans up only its own session and markers. No tokens spent.
 
 ## Observations

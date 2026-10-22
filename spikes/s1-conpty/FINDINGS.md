@@ -3,8 +3,8 @@
 - Date: 2026-09-24
 - Machine: Windows 10.0.26200.9457 (Windows 11), ru-RU locale (OEM code page 866), process elevated (Administrator)
 - Crate: `portable-pty` 0.9.0
-- Raw evidence: `findings.json`: rerun on clean commit `3684aeb` (no tracked changes), exit 0, 8/8 checks. The first runs were on an uncommitted tree and are superseded.
-- Non-admin rerun (2026-09-24, Medium integrity, UAC re-enabled): clean commit `0195d6b`. `findings.json` = default run (7/8; Ctrl+C fails), `findings-ctrlc-restored.json` = same build with `AMIRI_S1_RESTORE_CTRL_C=1` (8/8). The elevated results from `3684aeb` are in git history. See **Non-admin rerun** below.
+- Raw evidence: `findings.json`: rerun on clean commit `62daad6` (no tracked changes), exit 0, 8/8 checks. The first runs were on an uncommitted tree and are superseded.
+- Non-admin rerun (2026-09-24, Medium integrity, UAC re-enabled): clean commit `d764f5f`. `findings.json` = default run (7/8; Ctrl+C fails), `findings-ctrlc-restored.json` = same build with `AMIRI_S1_RESTORE_CTRL_C=1` (8/8). The elevated results from `62daad6` are in git history. See **Non-admin rerun** below.
 
 ## Observations
 
@@ -33,7 +33,7 @@
 
 Rerun from a Medium-integrity session after UAC was re-enabled (S0 findings). Everything the elevated run observed still holds, except:
 
-1. **Ctrl+C did not interrupt `ping -t` (every default run: 4 of 4, the last on `0195d6b`).** Cause confirmed by A/B on the same build: the spike process had inherited the console's *ignore Ctrl+C* flag from the session that launched it (a process started with `CREATE_NEW_PROCESS_GROUP` gets that flag, and children inherit it). The PTY children inherit it too, so ConPTY's `` → `CTRL_C_EVENT` is ignored. Calling `SetConsoleCtrlHandler(NULL, FALSE)` once at startup (`AMIRI_S1_RESTORE_CTRL_C=1`) made the check pass.
+1. **Ctrl+C did not interrupt `ping -t` (every default run: 4 of 4, the last on `d764f5f`).** Cause confirmed by A/B on the same build: the spike process had inherited the console's *ignore Ctrl+C* flag from the session that launched it (a process started with `CREATE_NEW_PROCESS_GROUP` gets that flag, and children inherit it). The PTY children inherit it too, so ConPTY's `` → `CTRL_C_EVENT` is ignored. Calling `SetConsoleCtrlHandler(NULL, FALSE)` once at startup (`AMIRI_S1_RESTORE_CTRL_C=1`) made the check pass.
    → **`[DECISION proposed]`: `amirid` clears the inherited flag at startup** (`SetConsoleCtrlHandler(NULL, FALSE)`), because how the daemon is launched (Tauri, Task Scheduler, a terminal, a service wrapper) must not decide whether Ctrl+C works in user shells. `amiri doctor` can test it with this spike's `ping -t` check. Structured agents (pipes) are unaffected: AMIRI interrupts them through their protocol, not Ctrl+C.
 2. **Resize check was brittle, not resize.** The child printed `120` both times; ConPTY ended the line with a cursor move (`ESC[8;1H`) instead of `
 `, so waiting for `

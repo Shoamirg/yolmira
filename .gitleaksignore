@@ -1,5 +1,5 @@
 # Ubuntu's public image-signing key fingerprint (spike S4), not a secret.
-# Entries are commit-bound: regenerate them after the pre-open-source history rewrite.
-e008516e8c8656353c3fe9c4194a1e0ca70257bb:spikes/s4-russh/findings-6ebeda6-superseded.json:generic-api-key:88
-e008516e8c8656353c3fe9c4194a1e0ca70257bb:spikes/s4-russh/findings.json:generic-api-key:92
-0faeb7ddf217b041c83bd235740dcf1adcb28574:spikes/s4-russh/setup-target.sh:generic-api-key:14
+# Entries are commit-bound: remapped to the rewritten commits on 2026-10-22 (docs/history-rewrite.md).
+6fa4ad35c75a1850705d8448f4452bc233f7c5cd:spikes/s4-russh/findings-6ebeda6-superseded.json:generic-api-key:88
+6fa4ad35c75a1850705d8448f4452bc233f7c5cd:spikes/s4-russh/findings.json:generic-api-key:92
+edf9c2b4be5cec5ecb5854bcf55dab5094ecce64:spikes/s4-russh/setup-target.sh:generic-api-key:14

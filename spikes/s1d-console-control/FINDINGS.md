@@ -1,7 +1,7 @@
 # Spike S1d — amirid console control and child Ctrl+C: findings
 
 - Date: 2026-09-24
-- Raw evidence: `findings.json`: clean commit `b42c776`, non-admin session, exit 0, 3/3 modes ran.
+- Raw evidence: `findings.json`: clean commit `51a07bf`, non-admin session, exit 0, 3/3 modes ran.
 - Method: the parent sets the ignore-Ctrl+C flag on itself (what a `CREATE_NEW_PROCESS_GROUP` launcher does), so every host starts from the S1 failure condition regardless of how the spike was launched. A host (stands in for `amirid`) runs inside an outer ConPTY; it opens an inner ConPTY with `cmd.exe`, runs `ping -t`, sends `\x03` and checks that the prompt returns. The parent then sends `\x03` to the host's own console, checks that the host is still running 2 s later, and closes the outer pseudoconsole. Events go to a log file as fixed tokens (locale-neutral). No tokens spent.
 
 ## Observations

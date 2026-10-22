@@ -1,8 +1,8 @@
 # Spike S1b — child lifetime when the host dies: findings
 
 - Date: 2026-09-24
-- Raw evidence: `findings.json`: run on clean commit `8e98c8b` (no tracked changes), exit 0, 3/3 scenarios
-- Non-admin rerun (2026-09-24, Medium integrity, UAC re-enabled): clean commit `b35872f`, `"elevated": false`, exit 0, 3/3. **Same outcome as the elevated run** in every scenario (EOF within 1–2 ms, `os error 232` on stdout, the EOF-ignoring pipe child still alive after 10 s, the PTY child gone after `CTRL_CLOSE_EVENT`). `findings.json` now holds this run; the elevated run from `8e98c8b` is in git history. Elevation plays no part in these results.
+- Raw evidence: `findings.json`: run on clean commit `00cc8cf` (no tracked changes), exit 0, 3/3 scenarios
+- Non-admin rerun (2026-09-24, Medium integrity, UAC re-enabled): clean commit `feebe20`, `"elevated": false`, exit 0, 3/3. **Same outcome as the elevated run** in every scenario (EOF within 1–2 ms, `os error 232` on stdout, the EOF-ignoring pipe child still alive after 10 s, the PTY child gone after `CTRL_CLOSE_EVENT`). `findings.json` now holds this run; the elevated run from `00cc8cf` is in git history. Elevation plays no part in these results.
 - Method: a host process (stands in for `amirid`) spawns a fake agent (this binary in `child` mode), then the parent kills the host with `TerminateProcess` (≈ daemon crash). The child logs console control events, stdin EOF and stdout write errors with timestamps; job membership is queried with `IsProcessInJob`. No tokens spent.
 
 ## Observations

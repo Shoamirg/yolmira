@@ -1,11 +1,11 @@
 # Phase 1, Slice C: the Tauri UI attaches to sessions (findings)
 
 - Date: 2026-10-05. Plan: `docs/phase1-plan.md` §1 Slice C.
-- Code: `54f0dde` (UI, E2E harness, CI steps), `86e7be9` (harness call sites), `9fce2ca` (review fixes), `c7dafab` (test diagnostics, signer check).
-- **Recorded runs** on `c7dafab`'s code, non-admin (Medium), ru-RU, WebView2 154.0.4258.53, Node 22.23.1: `npm run e2e` (from `app/`): **6 of 6 pass**, twice in a row, ~55 s per run. `daemon_down_banner_and_reconnect` alone: 12 runs, all pass (but see "Open": it failed twice on an earlier build).
-- Workspace: `scripts/test.ps1` on `c7dafab`, exit 0, all 12 test binaries pass, 3 tests not run (same three as Slice B, each with its reason). Durations now printed per binary: `pty` 8.1 s, `sessions` 8.6 s, `lifecycle` 6.5 s, `ipc` 3.2 s, the rest under 1 s.
+- Code: `f464f06` (UI, E2E harness, CI steps), `2b73b07` (harness call sites), `57b647f` (review fixes), `4821883` (test diagnostics, signer check).
+- **Recorded runs** on `4821883`'s code, non-admin (Medium), ru-RU, WebView2 154.0.4258.53, Node 22.23.1: `npm run e2e` (from `app/`): **6 of 6 pass**, twice in a row, ~55 s per run. `daemon_down_banner_and_reconnect` alone: 12 runs, all pass (but see "Open": it failed twice on an earlier build).
+- Workspace: `scripts/test.ps1` on `4821883`, exit 0, all 12 test binaries pass, 3 tests not run (same three as Slice B, each with its reason). Durations now printed per binary: `pty` 8.1 s, `sessions` 8.6 s, `lifecycle` 6.5 s, `ipc` 3.2 s, the rest under 1 s.
 - App crate: `cargo fmt --check`, `cargo clippy --all-targets -D warnings` (debug **and** `--release`, which compiles different code: see the env-hook fix), `cargo test` 9 pass. Frontend: `tsc --noEmit` and `vite build` clean.
-- Reviews before the fix commit: `rust-reviewer`, `react-reviewer`, `security-reviewer` (read-only). Every HIGH and MEDIUM finding was fixed in `9fce2ca` or turned out not to apply (reasons below); deferred LOWs are under "Open".
+- Reviews before the fix commit: `rust-reviewer`, `react-reviewer`, `security-reviewer` (read-only). Every HIGH and MEDIUM finding was fixed in `57b647f` or turned out not to apply (reasons below); deferred LOWs are under "Open".
 
 ## Exit tests (`app/e2e/ui.test.mjs`)
 
@@ -55,11 +55,11 @@ Each test has its own daemon instance (`--instance`/`--home`), its own UI proces
 
 ## After acceptance (2026-10-05 to 2026-10-09)
 
-The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are met (`41e8bc5`..`53f7739`, pushed). Further findings while doing so:
+The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are met (`e61fa0e`..`359592f`, pushed). Further findings while doing so:
 
-1. **E2E runs used stale binaries.** `app/.npmrc` sets `ignore-scripts=true` (supply chain), which also makes npm skip `pre` scripts: `npm run e2e` never ran its `pree2e` build. Runs since Slice C tested whatever binaries a manual build had left; the 2026-10-06 run (`53f7739`) and the first 2026-10-09 run don't count. Fixed (`488424f`, `3707c4e`): the `e2e` script builds explicitly, and the harness fails if any binary is older than its own sources, printing each build time.
-2. **The UIs that "crashed" mid-run were closed by hand**, twice (the user confirmed both; exit code 0, window closed). An empty `ui.log` hid it: the stale UI build still used a buffered writer whose last lines are lost when Tauri ends the process. Now (`c9d5ae2`): unbuffered log; `UI exiting: <reason>` on every exit the UI sees (window closed, exit request, startup failure); panics logged; a run marker (pid + process start time) makes the next start report a UI that was killed or crashed. E2E asserts both, after a close and after `taskkill /F`.
-3. **Off-screen test windows.** Windows ignores an off-screen position given at window creation (the first attempt opened on-screen); moving the built window works (`c0c210d`). Comparison on the same build (`3707c4e`), WebView2 154.0.4258.62:
+1. **E2E runs used stale binaries.** `app/.npmrc` sets `ignore-scripts=true` (supply chain), which also makes npm skip `pre` scripts: `npm run e2e` never ran its `pree2e` build. Runs since Slice C tested whatever binaries a manual build had left; the 2026-10-06 run (`359592f`) and the first 2026-10-09 run don't count. Fixed (`dba628e`, `b937db9`): the `e2e` script builds explicitly, and the harness fails if any binary is older than its own sources, printing each build time.
+2. **The UIs that "crashed" mid-run were closed by hand**, twice (the user confirmed both; exit code 0, window closed). An empty `ui.log` hid it: the stale UI build still used a buffered writer whose last lines are lost when Tauri ends the process. Now (`1a376bf`): unbuffered log; `UI exiting: <reason>` on every exit the UI sees (window closed, exit request, startup failure); panics logged; a run marker (pid + process start time) makes the next start report a UI that was killed or crashed. E2E asserts both, after a close and after `taskkill /F`.
+3. **Off-screen test windows.** Windows ignores an off-screen position given at window creation (the first attempt opened on-screen); moving the built window works (`71e6b5d`). Comparison on the same build (`b937db9`), WebView2 154.0.4258.62:
 
    | Test | On-screen | Off-screen (-4000,-4000) |
    |---|---|---|
@@ -71,18 +71,18 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
    | output_flood_flows_through | ok, 15.73 s | ok, 15.58 s |
    | Whole run | 6/6, 36.8 s | 6/6, 36.3 s |
 
-   Every page reported `document.visibilityState = visible` off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default (`6685a08`); `YOLMIRA_E2E_ONSCREEN=1` shows the windows. The console window of `ui_started_from_closed_terminal` still appears briefly.
-4. **WebView2 updated itself** (154.0.4258.53 → .62) between runs; the harness stopped with the planned message, and the matching driver was pinned (`7419ae6`: zip SHA-256 recorded, signature Valid, O=Microsoft Corporation).
-5. **CI did not run** for `53f7739` (run 37928451747): GitHub refused to start the job over the account's billing ("recent account payments have failed or your spending limit needs to be increased"). Not a code failure; rerun once billing is fixed.
-6. **Which Slice C runs could have used stale binaries** (the npm `ignore-scripts` bug above). `app/.npmrc` existed from the first Slice C commit (`54f0dde`), so no `npm run e2e` in Slice C rebuilt anything. The UI binary is what changed in Slice C; the daemon and CLI were current throughout (Slice C didn't touch `crates/`, and `scripts/test.ps1` rebuilt them).
+   Every page reported `document.visibilityState = visible` off-screen too: WebView2 doesn't treat these windows as hidden. Off-screen is now the default (`19a11e4`); `YOLMIRA_E2E_ONSCREEN=1` shows the windows. The console window of `ui_started_from_closed_terminal` still appears briefly.
+4. **WebView2 updated itself** (154.0.4258.53 → .62) between runs; the harness stopped with the planned message, and the matching driver was pinned (`4032899`: zip SHA-256 recorded, signature Valid, O=Microsoft Corporation).
+5. **CI did not run** for `359592f` (run 37928451747): GitHub refused to start the job over the account's billing ("recent account payments have failed or your spending limit needs to be increased"). Not a code failure; rerun once billing is fixed.
+6. **Which Slice C runs could have used stale binaries** (the npm `ignore-scripts` bug above). `app/.npmrc` existed from the first Slice C commit (`f464f06`), so no `npm run e2e` in Slice C rebuilt anything. The UI binary is what changed in Slice C; the daemon and CLI were current throughout (Slice C didn't touch `crates/`, and `scripts/test.ps1` rebuilt them).
 
    | Runs (2026-10-05) | UI binary | Verdict |
    |---|---|---|
-   | First runs on `54f0dde`/`86e7be9`, and the run on `9fce2ca` (review fixes) that showed one frame of RUNNING for a dead shell (twice) | Built 18:42, before the last Slice C edits and before every review fix | **Superseded.** Stale; this most likely explains the "cause not found" one-frame RUNNING noted under Open (it never recurred once the UI was rebuilt) |
+   | First runs on `f464f06`/`2b73b07`, and the run on `57b647f` (review fixes) that showed one frame of RUNNING for a dead shell (twice) | Built 18:42, before the last Slice C edits and before every review fix | **Superseded.** Stale; this most likely explains the "cause not found" one-frame RUNNING noted under Open (it never recurred once the UI was rebuilt) |
    | 12 single runs of `daemon_down_banner_and_reconnect`, 2 full runs of 6/6 (the "Recorded runs" above) | Rebuilt by hand (`npm run build:app`) while debugging the failure above, from the reviewed source | Fresh. These were the acceptance evidence |
-   | 2026-10-06 run on `53f7739` | Stale (last manual build before it) | **Superseded** (it also had windows closed by hand) |
+   | 2026-10-06 run on `359592f` | Stale (last manual build before it) | **Superseded** (it also had windows closed by hand) |
 
-   **Rerun on a fresh build, 2026-10-09, `ab2467d`** (the `e2e` script now builds, and the harness refuses binaries older than their sources): **6/6 pass**, 36.9 s (close/reopen 2.83 s, killed UI 2.12 s, closed console 4.89 s, two UIs 1.64 s, daemon down 2.69 s, flood 15.63 s). This confirms Slice C on current code; the one-frame RUNNING failure is now also impossible by design (status.ts) and covered by the frame-recording test.
+   **Rerun on a fresh build, 2026-10-09, `e9845ea`** (the `e2e` script now builds, and the harness refuses binaries older than their sources): **6/6 pass**, 36.9 s (close/reopen 2.83 s, killed UI 2.12 s, closed console 4.89 s, two UIs 1.64 s, daemon down 2.69 s, flood 15.63 s). This confirms Slice C on current code; the one-frame RUNNING failure is now also impossible by design (status.ts) and covered by the frame-recording test.
 
 ## Plan deviations
 
@@ -91,7 +91,7 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
 
 ## Open
 
-- **Superseded (2026-10-09), see "After acceptance" item 6: those runs used a stale UI build.** Original note: **`daemon_down_banner_and_reconnect` failed twice** (the full run on `9fce2ca`'s first build, and once more alone on the same binary): exactly one rendered frame, right after the reconnect, showed the dead shell RUNNING; the next frame (1 ms later) showed EXITED. The daemon itself lists the shell as EXITED immediately after a restart (checked with the CLI), and the store trace on a rebuilt binary showed the intended order (connected with no fresh list → UNKNOWN → EXITED). After rebuilding from the same source: 14 runs, no failure. Cause not found. The test now prints the full rendered trail on failure, so the next occurrence says which state produced it.
+- **Superseded (2026-10-09), see "After acceptance" item 6: those runs used a stale UI build.** Original note: **`daemon_down_banner_and_reconnect` failed twice** (the full run on `57b647f`'s first build, and once more alone on the same binary): exactly one rendered frame, right after the reconnect, showed the dead shell RUNNING; the next frame (1 ms later) showed EXITED. The daemon itself lists the shell as EXITED immediately after a restart (checked with the CLI), and the store trace on a rebuilt binary showed the intended order (connected with no fresh list → UNKNOWN → EXITED). After rebuilding from the same source: 14 runs, no failure. Cause not found. The test now prints the full rendered trail on failure, so the next occurrence says which state produced it.
 - **`pty` (Slice B) failed once in 11 runs**: in `scripts/test.ps1` right after an E2E run, the binary hung ~140 s and failed; the failing test's output wasn't kept. 8 runs of the binary alone and two more full runs were clean. Not reproduced; the next `test.ps1` failure should keep the full log.
 - Replay at the default size for background reattaches (finding 4): fit hidden panes before attaching, or send the real size with the attach.
 - Kill has no confirmation step; the Detach button sits inside the tablist; xterm keeps Tab, so keyboard users can't leave a terminal with Tab (needs a documented escape key).
@@ -102,5 +102,5 @@ The reviewer accepted Slice C with conditions (decisions.md 2026-10-05); all are
 
 ## CI
 
-- **Green**: run `37330124720` on `9acaed9` (the first with the UI steps: Node 22.23.1 pinned, `npm ci` + typecheck + build, app crate fmt/clippy/tests), 9 min 23 s in total against ~6 min before. 7 tests not run, each with its reason (unchanged from Slice B).
+- **Green**: run `37330124720` on `4e511bf` (the first with the UI steps: Node 22.23.1 pinned, `npm ci` + typecheck + build, app crate fmt/clippy/tests), 9 min 23 s in total against ~6 min before. 7 tests not run, each with its reason (unchanged from Slice B).
 - **CI test durations** (named per binary now): `pty` 55.1 s (Slice B: 70.3 s; locally 8.1 s), `sessions` 20.8 s (31.1 s), `lifecycle` 2.6 s, `ipc` 1.3 s, the rest under 1 s.

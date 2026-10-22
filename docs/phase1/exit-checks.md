@@ -4,14 +4,14 @@ Order (decisions.md 2026-10-09): these run before admin PowerShell step 1 and Ph
 
 | Check | Who | Status |
 |---|---|---|
-| Close UI / reopen / shell survives, fresh build | automated (E2E) | 9/9 at `9f9acb5`; rerun after the fix |
-| 1-hour soak, overload path (client fell behind) | automated | passed `9f9acb5`; not the exit check |
+| Close UI / reopen / shell survives, fresh build | automated (E2E) | 9/9 at `39f6c17`; rerun after the fix |
+| 1-hour soak, overload path (client fell behind) | automated | passed `39f6c17`; not the exit check |
 | 1-hour soak with a client that keeps up (`soak_1h_output_flood`, `YOLMIRA_SOAK=3600`) | automated | after the output-budget fix |
-| WSL terminate on a throwaway distro (`wsl_shutdown_while_attached`) | automated | 3/3 at `9f9acb5`; rerun after the fix |
+| WSL terminate on a throwaway distro (`wsl_shutdown_while_attached`) | automated | 3/3 at `39f6c17`; rerun after the fix |
 | Logoff while the daemon runs detached | the user, steps below | pending |
 | Pipe-owner rejection with a second Windows account (H1) | the user, steps below | pending |
 
-## Yolmira build (`9f9acb5`)
+## Yolmira build (`39f6c17`)
 
 - **Close UI / reopen / shell survives:** E2E 9/9 (47.7 s), every binary built after its newest source (`yolmira-app.exe` 14:37:29Z, `yolmira.exe`/`yolmirad.exe` 14:33:46Z; sources 14:36:17Z / 14:33:41Z).
 - **WSL terminate:** `wsl_shutdown_while_attached` 3/3 on `amiri-throwaway` (one run after `wsl --terminate`), 0.5 to 1.0 s; the user's distros untouched.
@@ -75,7 +75,7 @@ Reviewer, 2026-10-09: done before Phase 1 closes. Code: `crates/yolmira/src/daem
 
 In normal use (clients that keep up) the daemon stays in the tens of MB (memory probe above). The largest terms outside any budget are the request-line limit and the broadcast buffers. Follow-ups, not now: a smaller request-line limit for everything except `session.input`; binary or raw framing for output instead of base64 in JSON (base64 is what turns a 256 KiB chunk into ~350 KB).
 
-**Results** (`b1ce605` to `db112bc`):
+**Results** (`2ccd493` to `e3920c5`):
 
 - **Unit tests:** `outbox` (9 tests: exact accounting, all-or-nothing, the in-flight line, order kept when one session's output is dropped, control backpressure, waking on room, the per-connection floor, stalls, close) and `slots` (3 tests).
 - **Integration tests** (`output_budget.rs`), all pass in parallel runs:
@@ -100,7 +100,7 @@ In normal use (clients that keep up) the daemon stays in the tens of MB (memory 
 
 On Windows, Rust aborts with that code, for example after a stack overflow or a panic during a panic. No trace survived: a detached daemon's stderr went nowhere, its log writer is non-blocking, and the test deleted its home. Not reproduced in 3 direct runs of that binary, 3 parallel runs of the budget tests, or 3 more full-suite runs. A second `yolmirad` on a live instance exits cleanly ("another yolmirad already serves this instance"), so that path isn't it.
 
-Since `db112bc`, a detached daemon's stderr and panics (with backtrace) go to `logs\yolmirad-stderr.log`, written synchronously (test `crash_log_records_a_panic`), and a failing test keeps its home and prints the path. If it happens again, the reason will be on disk.
+Since `e3920c5`, a detached daemon's stderr and panics (with backtrace) go to `logs\yolmirad-stderr.log`, written synchronously (test `crash_log_records_a_panic`), and a failing test keeps its home and prints the path. If it happens again, the reason will be on disk.
 
 ## Earlier automated runs (old name, superseded)
 
@@ -108,9 +108,9 @@ Since `db112bc`, a detached daemon's stderr and panics (with backtrace) go to `l
 
 ### Close UI / reopen / shell survives, fresh build
 
-`92c87b9`, the Yolmira crates rebuilt from scratch (`cargo clean -p yolmira`, then `npm run e2e`; the harness prints each binary's build time against its newest source: `yolmirad.exe` 13:53:54Z, sources 13:37:58Z; `yolmira-app.exe` 13:54:04Z, sources 13:40:11Z). **9/9 pass**, 51.0 s, windows off-screen, no leftover processes: `ui_close_reopen_shell_survives`, `ui_killed_shell_survives`, `ui_started_from_closed_terminal`, `two_uis_same_session`, `daemon_down_banner_and_reconnect`, `output_flood_flows_through`, `ui_approval_prompt`, `project_picker`, `config_edit_needs_confirmation`.
+`dea6b49`, the Yolmira crates rebuilt from scratch (`cargo clean -p yolmira`, then `npm run e2e`; the harness prints each binary's build time against its newest source: `yolmirad.exe` 13:53:54Z, sources 13:37:58Z; `yolmira-app.exe` 13:54:04Z, sources 13:40:11Z). **9/9 pass**, 51.0 s, windows off-screen, no leftover processes: `ui_close_reopen_shell_survives`, `ui_killed_shell_survives`, `ui_started_from_closed_terminal`, `two_uis_same_session`, `daemon_down_banner_and_reconnect`, `output_flood_flows_through`, `ui_approval_prompt`, `project_picker`, `config_edit_needs_confirmation`.
 
-Note: a first `cargo clean -p yolmira` printed nothing (output discarded) and the run used the 18:38 binaries from `f2273c4` (no Rust change since; also 9/9). The clean was repeated visibly ("Removed 13572 files") and the suite rerun; the result above is that rerun.
+Note: a first `cargo clean -p yolmira` printed nothing (output discarded) and the run used the 18:38 binaries from `98f017a` (no Rust change since; also 9/9). The clean was repeated visibly ("Removed 13572 files") and the suite rerun; the result above is that rerun.
 
 ## Logoff while the daemon runs detached (plan §4, manual check 2)
 

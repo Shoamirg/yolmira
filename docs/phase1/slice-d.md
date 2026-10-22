@@ -1,12 +1,12 @@
 # Phase 1, Slice D: policy engine, project registry, `yolmira doctor` (findings)
 
 - Dates: 2026-10-05 to 2026-10-09. Plan: `docs/phase1-plan.md` §1 Slice D, plus the reviewer's additions of 2026-10-05 and 2026-10-09 (`docs/decisions.md`).
-- Code: `c48a77c` (policy core) … `b0f1cbb` (project picker), all pushed. Main commits: `53f7739` projects store, `76590d9` process peer helpers, `0050eda` policy gate + approvals, `74a4a7d` method coverage test, `8521e76`/`7c46152` identity, `8e23295` approval panel, `b6e90c7` doctor v1, `b0f1cbb` project picker.
-- **Recorded runs** on `b0f1cbb`, non-admin (Medium), ru-RU:
+- Code: `8a3af4e` (policy core) … `cd74cb4` (project picker), all pushed. Main commits: `359592f` projects store, `e82a027` process peer helpers, `ffe7144` policy gate + approvals, `02a48d7` method coverage test, `2bdcfb6`/`65c3ff0` identity, `8681d14` approval panel, `771a0a2` doctor v1, `cd74cb4` project picker.
+- **Recorded runs** on `cd74cb4`, non-admin (Medium), ru-RU:
   - `scripts/test.ps1`: exit 0, **all 14 test binaries pass**; 3 tests not run, each with its reason (unchanged since Slice B: 1 h soak, `pwsh` not installed (R7), WSL shutdown needs a throwaway distro). Durations: `lifecycle` 5.6 s, `pty` 4.0 s, `sessions` 3.7 s, `methods` 1.5 s, `doctor` 0.8 s, `ipc` 0.8 s, `policy` 0.8 s, the rest under 0.2 s.
   - `npm run e2e` (builds first; windows off-screen): **8/8 pass**, 42.2 s, WebView2 154.0.4258.62.
   - `npm test` (UI unit tests): 5/5. App crate: 13 unit tests; fmt, clippy (debug and release) clean.
-- **CI: not yet green.** GitHub refused to start the job for `53f7739` (run 37928451747: "recent account payments have failed or your spending limit needs to be increased"). Per the reviewer, **Slice D isn't accepted until CI has run green once**; the user is fixing billing.
+- **CI: not yet green.** GitHub refused to start the job for `359592f` (run 37928451747: "recent account payments have failed or your spending limit needs to be increased"). Per the reviewer, **Slice D isn't accepted until CI has run green once**; the user is fixing billing.
 
 ## Exit tests
 
@@ -43,7 +43,7 @@ Agents will run as the user, with a shell, and can read the pipe token. So the t
 
 ## Config files agents could edit (reviewer, 2026-10-09)
 
-Agents run as the user and can edit `policies.toml` and `agents.toml`, which would bypass every approval (e.g. `"daemon.stop" = "allow"`). Now (`0790840`):
+Agents run as the user and can edit `policies.toml` and `agents.toml`, which would bypass every approval (e.g. `"daemon.stop" = "allow"`). Now (`d04c7e4`):
 
 - **The confirmed text** of each file is kept in the event log (`policy.config_accepted`, full content). An instance's first start (and the guard's first start on an existing install) confirms the files as found: trust on first use, logged with that reason.
 - **Every change is logged with a line diff** (`policy.config_changed {file, diff, loosenings, applied}`). The daemon looks at both files on every policy check and every 2 s.
@@ -73,7 +73,7 @@ Agents run as the user and can edit `policies.toml` and `agents.toml`, which wou
 
 ## Open
 
-- **CI green on the latest commit** (billing; not a rerun of the old run on `53f7739`), then Slice D acceptance. After acceptance: the Phase 1 exit checks (decisions.md 2026-10-09) before anything else.
+- **CI green on the latest commit** (billing; not a rerun of the old run on `359592f`), then Slice D acceptance. After acceptance: the Phase 1 exit checks (decisions.md 2026-10-09) before anything else.
 - A request whose client disconnects isn't cancelled: it waits until answered or the 600 s limit. Harmless (the decision is logged), but the panel shows it meanwhile.
 - `yolmira doctor` doesn't yet report identity (person/install) or `policies.toml` validity; the daemon reports an invalid file by asking for everything.
 - The UI doesn't show who (person/agent) asked; Phase 1 has one person and no agents.

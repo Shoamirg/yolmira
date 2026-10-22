@@ -1,9 +1,9 @@
 # Phase 1, Slice A: daemon, named-pipe IPC, CLI, event log (findings)
 
 - Date: 2026-09-25. Plan: `docs/phase1-plan.md` §1 Slice A, §2.
-- Code: commits `52ae01b` (slice) and `9ccbd0d` (CI fixes). **Recorded run** on clean commit `9ccbd0d` (no tracked changes), non-admin (`S-1-16-8192`, Medium), culture ru-RU, console code page 65001 in the running shell: `scripts/test.ps1`, exit 0, **46 tests in 8 binaries, all run, all passed**.
-- **CI** on `9ccbd0d` (GitHub-hosted `windows-latest`, en-US, elevated local Administrator): green, run `36138817727`. **42 run and passed, 4 not run** (need breakaway; see "CI").
-- Reviews before the commit: `rust-reviewer` and `security-reviewer` agents (read-only). All HIGH and MEDIUM findings fixed in `52ae01b`; what was deferred is listed under "Open".
+- Code: commits `70332d3` (slice) and `8f2bfad` (CI fixes). **Recorded run** on clean commit `8f2bfad` (no tracked changes), non-admin (`S-1-16-8192`, Medium), culture ru-RU, console code page 65001 in the running shell: `scripts/test.ps1`, exit 0, **46 tests in 8 binaries, all run, all passed**.
+- **CI** on `8f2bfad` (GitHub-hosted `windows-latest`, en-US, elevated local Administrator): green, run `36138817727`. **42 run and passed, 4 not run** (need breakaway; see "CI").
+- Reviews before the commit: `rust-reviewer` and `security-reviewer` agents (read-only). All HIGH and MEDIUM findings fixed in `70332d3`; what was deferred is listed under "Open".
 
 ## Exit tests
 

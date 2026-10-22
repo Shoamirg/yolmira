@@ -1,10 +1,10 @@
 # Phase 1, Slice B: terminal sessions from the CLI (findings)
 
 - Date: 2026-09-25. Plan: `docs/phase1-plan.md` §1 Slice B.
-- Code: commit `5a010b7`. **Recorded run** on that clean commit, non-admin (Medium), ru-RU: `scripts/test.ps1`, exit 0, **all 12 test binaries pass; 3 tests not run** in this environment (listed below, each with its reason).
+- Code: commit `768bc57`. **Recorded run** on that clean commit, non-admin (Medium), ru-RU: `scripts/test.ps1`, exit 0, **all 12 test binaries pass; 3 tests not run** in this environment (listed below, each with its reason).
 - Stability: after the fixes, `pty` (13 tests) and `sessions` (9 tests) ran **10 times in a row clean**.
-- **CI** on `5f3f30d` (en-US, elevated runner): green, run `36150995203`. 76 run and passed; 7 not run, each listed with its reason (4 need breakaway, no WSL distro on the runner, soak, WSL-terminate).
-- Reviews before the commit: `rust-reviewer` and `security-reviewer` (read-only). All HIGH and MEDIUM findings fixed in `5a010b7`; deferred items under "Open".
+- **CI** on `5226c24` (en-US, elevated runner): green, run `36150995203`. 76 run and passed; 7 not run, each listed with its reason (4 need breakaway, no WSL distro on the runner, soak, WSL-terminate).
+- Reviews before the commit: `rust-reviewer` and `security-reviewer` (read-only). All HIGH and MEDIUM findings fixed in `768bc57`; deferred items under "Open".
 
 ## Exit tests (the PTY integration suite and session lifecycle)
 
@@ -68,7 +68,7 @@
 
 ## CI
 
-- **First two runs failed on the four Windows PowerShell tests** (`5a010b7`, `9a3e679`); one diagnostic run in between passed. The full output showed the command typed and accepted (`\r` after the line), the prompt already there, and then no output for 30 s. Cause: the first command in a fresh Windows PowerShell on a new image builds its module-analysis cache, which is slow; locally the cache is always warm. PSReadLine is 2.0.0 on both (checked; printed by the CI facts step).
+- **First two runs failed on the four Windows PowerShell tests** (`768bc57`, `0d255b2`); one diagnostic run in between passed. The full output showed the command typed and accepted (`\r` after the line), the prompt already there, and then no output for 30 s. Cause: the first command in a fresh Windows PowerShell on a new image builds its module-analysis cache, which is slow; locally the cache is always warm. PSReadLine is 2.0.0 on both (checked; printed by the CI facts step).
 - Fixes: tests wait for the unlocalized `PS …>` prompt before typing (up to 120 s); a command round trip allows 90 s instead of 30; CI runs a PowerShell warm-up step first. With these the suite passes; the PTY binary still takes ~70 s on the runner against ~8 s locally, so the warm-up helps less than hoped and the 90 s allowance is what carries it.
 - A real hang still fails (each wait is bounded and shows 2,000 characters of output on failure).
-- **CI test durations** (recorded per slice from now on, so a jump stands out). Run `36150995203` on `5f3f30d`, per test binary as reported by the harness: `pty` 70.3 s (locally ~8 s), `sessions` 31.1 s, two others 2.6 s and 1.3 s, the rest under 1 s (the harness output doesn't name the binaries; `scripts/test.ps1` will print names from Slice C on). Slice A had no per-binary record; its baseline is this run.
+- **CI test durations** (recorded per slice from now on, so a jump stands out). Run `36150995203` on `5226c24`, per test binary as reported by the harness: `pty` 70.3 s (locally ~8 s), `sessions` 31.1 s, two others 2.6 s and 1.3 s, the rest under 1 s (the harness output doesn't name the binaries; `scripts/test.ps1` will print names from Slice C on). Slice A had no per-binary record; its baseline is this run.

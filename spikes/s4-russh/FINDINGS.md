@@ -1,8 +1,8 @@
 # Spike S4: russh on Windows (findings)
 
 - Date: 2026-09-24. `russh` 0.63 (`ring` backend; the default `aws-lc-rs` needs NASM to build on Windows), `russh-sftp` 3.0, tmux 3.4 on the target.
-- Raw evidence: `findings.json`: clean commit `6660566`, non-admin session, exit 0, 8/8 checks passed, each one asserting its expected value.
-- Superseded run: `findings-6ebeda6-superseded.json` (clean commit `6ebeda6`) reported 8/8 "ok", but `pty_tmux_resize_reconnect` passed with `size_after_resize: 29x100` against `expected_size: 30x100`. That run only recorded its observations: no check could fail on a wrong value. The mismatch went unexplained until it was queried (below), and `6660566` made every check assert.
+- Raw evidence: `findings.json`: clean commit `a00ad4f`, non-admin session, exit 0, 8/8 checks passed, each one asserting its expected value.
+- Superseded run: `findings-6ebeda6-superseded.json` (clean commit `9c3b89a`) reported 8/8 "ok", but `pty_tmux_resize_reconnect` passed with `size_after_resize: 29x100` against `expected_size: 30x100`. That run only recorded its observations: no check could fail on a wrong value. The mismatch went unexplained until it was queried (below), and `a00ad4f` made every check assert.
 - Target (decisions.md, "S4 image"): throwaway distro `amiri-s4-sshd` imported from Ubuntu's official WSL image `ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz`, SHA-256 `2a790896740b14d637dbdc583cce1ba081ac53b9e9cdb46dc09a2f73abbd9934`. It matched the published `SHA256SUMS`, and the signature on that file checked against key `D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81` (UEC Image Automatic Signing Key). sshd: key-only, `127.0.0.1:22422`, user `amiri`, started by hand outside systemd. The user's own distros were not touched.
 - Method: `setup-target.sh`, then sshd, then `ssh-add` of the test key into the Windows agent (commands in `src/main.rs`), then `cargo run --release -- <work-dir>`, then `teardown-target.sh`.
 
