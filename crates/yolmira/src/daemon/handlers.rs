@@ -49,7 +49,7 @@ pub async fn dispatch(
         },
         methods::SESSION_LIST => sh::list(state).await,
         methods::SESSION_ATTACH => {
-            params(req).and_then(|p| sh::attach(state, p, client, tx, tasks))
+            params(req).and_then(|p| sh::attach(state, p, client, conn.id, tx, tasks))
         }
         methods::SESSION_DETACH => params(req).and_then(|p| sh::detach(p, tasks)),
         methods::SESSION_INPUT => match params(req) {
@@ -183,6 +183,7 @@ pub const DEBUG_PANIC: &str = "debug.panic";
 #[cfg(debug_assertions)]
 fn output_stats(state: &State) -> Value {
     let (limit, used, high, conn_high, resyncs) = state.output_budget.stats();
+    let (behind_full, behind_lagged) = state.output_budget.behind_counts();
     json!({
         "daemon_limit": limit,
         "daemon_used": used,
@@ -190,6 +191,8 @@ fn output_stats(state: &State) -> Value {
         "connection_limit": super::outbox::OUTPUT_BUDGET,
         "connection_high_water": conn_high,
         "resyncs": resyncs,
+        "behind_full": behind_full,
+        "behind_lagged": behind_lagged,
     })
 }
 

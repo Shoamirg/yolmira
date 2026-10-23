@@ -382,6 +382,23 @@ pub fn try_run_bounded_env(
     })
 }
 
+/// The instance's daemon log lines containing `needle` (for failure messages).
+pub fn daemon_log_lines(home: &std::path::Path, needle: &str) -> String {
+    let Ok(dir) = std::fs::read_dir(home.join("logs")) else {
+        return "(no log folder)".into();
+    };
+    let mut lines = Vec::new();
+    for entry in dir.flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        lines.extend(
+            text.lines()
+                .filter(|l| l.contains(needle))
+                .map(str::to_owned),
+        );
+    }
+    lines.join("\n")
+}
+
 /// Last lines of the instance's daemon logs (for failure messages).
 pub fn daemon_log_tail(home: &std::path::Path) -> String {
     let Ok(dir) = std::fs::read_dir(home.join("logs")) else {

@@ -162,6 +162,7 @@ pub fn attach(
     state: &Arc<State>,
     p: SessionIdParams,
     client: &str,
+    connection: u64,
     tx: &Arc<Outbox>,
     tasks: &mut ConnTasks,
 ) -> Result<Value, RpcError> {
@@ -179,6 +180,7 @@ pub fn attach(
         state: Arc::clone(state),
         session: Arc::clone(&session),
         client: client.into(),
+        connection,
         reason: Arc::clone(&reason),
     };
     let attached = NewEvent::new(
@@ -267,6 +269,7 @@ struct AttachGuard {
     state: Arc<State>,
     session: Arc<LiveSession>,
     client: String,
+    connection: u64,
     reason: Reason,
 }
 
@@ -298,6 +301,7 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
         return;
     };
     let mut behind = false;
+    let mut times_behind = 0u64;
     let mut exit = guard.session.exit.clone();
     loop {
         if behind {
@@ -311,15 +315,23 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
         }
         tokio::select! {
             r = rx.recv() => match r {
-                Ok(data) => match out.offer_output(&id, vec![output_line(&id, &data, false)]) {
-                    Offer::Queued => {}
-                    Offer::Full => {
-                        out.drop_output(&id);
-                        behind = true;
+                Ok(data) => {
+                    let line = output_line(&id, &data, false);
+                    let offered = line.len();
+                    match out.offer_output(&id, vec![line]) {
+                        Offer::Queued => {}
+                        Offer::Full => {
+                            times_behind += 1;
+                            log_behind(&guard, &out, &id, Behind::Full { offered }, times_behind);
+                            out.drop_output(&id);
+                            behind = true;
+                        }
+                        Offer::Closed => return,
                     }
-                    Offer::Closed => return,
-                },
-                Err(broadcast::error::RecvError::Lagged(_)) => {
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    times_behind += 1;
+                    log_behind(&guard, &out, &id, Behind::Lagged { skipped }, times_behind);
                     out.drop_output(&id);
                     behind = true;
                 }
@@ -329,7 +341,11 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
                 if changed.is_err() || exit.borrow().is_some() {
                     // All output was delivered before the exit (PTY layer); pass it on.
                     while let Ok(data) = rx.try_recv() {
-                        if out.offer_output(&id, vec![output_line(&id, &data, false)]) != Offer::Queued {
+                        let line = output_line(&id, &data, false);
+                        let offered = line.len();
+                        if out.offer_output(&id, vec![line]) != Offer::Queued {
+                            times_behind += 1;
+                            log_behind(&guard, &out, &id, Behind::Full { offered }, times_behind);
                             out.drop_output(&id);
                             if catch_up(&guard, &out, &id, true).await.is_none() {
                                 return;
@@ -345,6 +361,54 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
                 }
             }
         }
+    }
+}
+
+/// Why a client fell behind on a session's output.
+enum Behind {
+    /// A budget refused `offered` bytes (the connection's, or the daemon-wide one beyond
+    /// the connection's floor: the logged `queued` and `daemon_used` tell which).
+    Full { offered: usize },
+    /// The forwarder lagged the shell by `skipped` chunks.
+    Lagged { skipped: u64 },
+}
+
+/// Count and log a client falling behind, with what it had queued. A client that keeps up
+/// should never fall behind (`output_budget` tests), so the first time per attachment is
+/// logged at info; later times at debug, so a slow UI can't flood the log.
+fn log_behind(guard: &AttachGuard, out: &Outbox, id: &str, why: Behind, times: u64) {
+    let (cause, offered, skipped) = match why {
+        Behind::Full { offered } => ("full", offered, 0),
+        Behind::Lagged { skipped } => ("lagged", 0, skipped),
+    };
+    out.global()
+        .count_behind(matches!(why, Behind::Lagged { .. }));
+    let (queued, daemon_used) = (out.queued_output(), out.global().used());
+    let connection = guard.connection;
+    if times == 1 {
+        tracing::info!(
+            connection,
+            session = id,
+            cause,
+            offered,
+            skipped,
+            queued,
+            daemon_used,
+            times,
+            "client fell behind on output"
+        );
+    } else {
+        tracing::debug!(
+            connection,
+            session = id,
+            cause,
+            offered,
+            skipped,
+            queued,
+            daemon_used,
+            times,
+            "client fell behind on output"
+        );
     }
 }
 

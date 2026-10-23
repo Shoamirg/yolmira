@@ -78,6 +78,10 @@ fn report(what: &str, v: &Value) {
         mb(v, "daemon_limit"),
         v["resyncs"]
     );
+    println!(
+        "  fell behind: {} refused by a budget, {} lagged the shell",
+        v["behind_full"], v["behind_lagged"]
+    );
 }
 
 fn within_budgets(v: &Value) {
@@ -162,12 +166,17 @@ fn many_slow_clients_stay_within_the_daemon_budget() {
         within_budgets(&v);
         assert!(
             v["resyncs"].as_u64().unwrap_or(0) >= 1,
-            "the slow clients fell behind: {v}"
+            "the slow clients never fell behind, so the test proved nothing: {v}"
         );
-        assert_eq!(
-            fast.resets, 1,
-            "the fast client was resynced: only its attach replay may reset it"
-        );
+        // The fast client was resynced: show why. The daemon logs each attachment's first
+        // fall behind with its cause and queued bytes (`session_handlers::log_behind`).
+        if fast.resets != 1 {
+            panic!(
+                "the fast client was resynced ({} resets; only its attach replay may reset it): {v}\n--- first fall behind per attachment ---\n{}",
+                fast.resets,
+                daemon_log_lines(&env.home(), "client fell behind on output")
+            );
+        }
     });
 }
 

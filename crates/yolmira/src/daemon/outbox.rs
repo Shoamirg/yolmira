@@ -56,6 +56,9 @@ pub struct OutputBudget {
     high: AtomicUsize,
     conn_high: AtomicUsize,
     resyncs: AtomicU64,
+    /// Times a client fell behind: refused by a budget, or its forwarder lagged the shell.
+    behind_full: AtomicU64,
+    behind_lagged: AtomicU64,
     freed: Notify,
     snapshots: Arc<Semaphore>,
 }
@@ -68,6 +71,8 @@ impl OutputBudget {
             high: AtomicUsize::new(0),
             conn_high: AtomicUsize::new(0),
             resyncs: AtomicU64::new(0),
+            behind_full: AtomicU64::new(0),
+            behind_lagged: AtomicU64::new(0),
             freed: Notify::new(),
             snapshots: Arc::new(Semaphore::new(SNAPSHOTS_AT_ONCE)),
         })
@@ -115,6 +120,29 @@ impl OutputBudget {
 
     pub fn count_resync(&self) {
         self.resyncs.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A client fell behind: `lagged` (its forwarder lagged the shell) or refused by a budget.
+    pub fn count_behind(&self, lagged: bool) {
+        let n = if lagged {
+            &self.behind_lagged
+        } else {
+            &self.behind_full
+        };
+        n.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// (refused by a budget, lagged): times a client fell behind.
+    pub fn behind_counts(&self) -> (u64, u64) {
+        (
+            self.behind_full.load(Ordering::Relaxed),
+            self.behind_lagged.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Queued output counted against the daemon-wide budget now.
+    pub fn used(&self) -> usize {
+        self.used.load(Ordering::Acquire)
     }
 
     /// (limit, used, high water, per-connection high water, resyncs).
@@ -222,6 +250,11 @@ impl Outbox {
 
     pub fn stall_limit(&self) -> Duration {
         self.stall_limit
+    }
+
+    /// This connection's queued output bytes (for the log line when a client falls behind).
+    pub fn queued_output(&self) -> usize {
+        self.lock().output
     }
 
     fn lock(&self) -> MutexGuard<'_, Queue> {
