@@ -59,6 +59,8 @@ pub struct OutputBudget {
     /// Times a client fell behind: refused by a budget, or its forwarder lagged the shell.
     behind_full: AtomicU64,
     behind_lagged: AtomicU64,
+    /// Lags before the forwarder passed on anything after its last snapshot.
+    behind_lagged_at_once: AtomicU64,
     freed: Notify,
     snapshots: Arc<Semaphore>,
 }
@@ -73,6 +75,7 @@ impl OutputBudget {
             resyncs: AtomicU64::new(0),
             behind_full: AtomicU64::new(0),
             behind_lagged: AtomicU64::new(0),
+            behind_lagged_at_once: AtomicU64::new(0),
             freed: Notify::new(),
             snapshots: Arc::new(Semaphore::new(SNAPSHOTS_AT_ONCE)),
         })
@@ -122,21 +125,26 @@ impl OutputBudget {
         self.resyncs.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// A client fell behind: `lagged` (its forwarder lagged the shell) or refused by a budget.
-    pub fn count_behind(&self, lagged: bool) {
+    /// A client fell behind: `lagged` (its forwarder lagged the shell) or refused by a budget;
+    /// `at_once`: it lagged before passing on anything after its last snapshot.
+    pub fn count_behind(&self, lagged: bool, at_once: bool) {
         let n = if lagged {
             &self.behind_lagged
         } else {
             &self.behind_full
         };
         n.fetch_add(1, Ordering::Relaxed);
+        if at_once {
+            self.behind_lagged_at_once.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
-    /// (refused by a budget, lagged): times a client fell behind.
-    pub fn behind_counts(&self) -> (u64, u64) {
+    /// (refused by a budget, lagged, lagged at once): times a client fell behind.
+    pub fn behind_counts(&self) -> (u64, u64, u64) {
         (
             self.behind_full.load(Ordering::Relaxed),
             self.behind_lagged.load(Ordering::Relaxed),
+            self.behind_lagged_at_once.load(Ordering::Relaxed),
         )
     }
 

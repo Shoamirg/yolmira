@@ -79,8 +79,8 @@ fn report(what: &str, v: &Value) {
         v["resyncs"]
     );
     println!(
-        "  fell behind: {} refused by a budget, {} lagged the shell",
-        v["behind_full"], v["behind_lagged"]
+        "  fell behind: {} refused by a budget, {} lagged the shell ({} before passing on anything after a snapshot)",
+        v["behind_full"], v["behind_lagged"], v["behind_lagged_at_once"]
     );
 }
 

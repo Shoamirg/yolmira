@@ -302,6 +302,8 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
     };
     let mut behind = false;
     let mut times_behind = 0u64;
+    // Chunks queued since the last snapshot.
+    let mut delivered = 0u64;
     let mut exit = guard.session.exit.clone();
     loop {
         if behind {
@@ -309,6 +311,7 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
                 Some(fresh) => {
                     rx = fresh;
                     behind = false;
+                    delivered = 0;
                 }
                 None => return,
             }
@@ -319,7 +322,7 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
                     let line = output_line(&id, &data, false);
                     let offered = line.len();
                     match out.offer_output(&id, vec![line]) {
-                        Offer::Queued => {}
+                        Offer::Queued => delivered += 1,
                         Offer::Full => {
                             times_behind += 1;
                             log_behind(&guard, &out, &id, Behind::Full { offered }, times_behind);
@@ -331,7 +334,7 @@ async fn forward(guard: AttachGuard, out: Arc<Outbox>) {
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                     times_behind += 1;
-                    log_behind(&guard, &out, &id, Behind::Lagged { skipped }, times_behind);
+                    log_behind(&guard, &out, &id, Behind::Lagged { skipped, delivered }, times_behind);
                     out.drop_output(&id);
                     behind = true;
                 }
@@ -369,20 +372,21 @@ enum Behind {
     /// A budget refused `offered` bytes (the connection's, or the daemon-wide one beyond
     /// the connection's floor: the logged `queued` and `daemon_used` tell which).
     Full { offered: usize },
-    /// The forwarder lagged the shell by `skipped` chunks.
-    Lagged { skipped: u64 },
+    /// The forwarder lagged the shell by `skipped` chunks, having queued `delivered` since
+    /// its last snapshot (0: it lagged before passing on anything after the snapshot).
+    Lagged { skipped: u64, delivered: u64 },
 }
 
 /// Count and log a client falling behind, with what it had queued. A client that keeps up
 /// should never fall behind (`output_budget` tests), so the first time per attachment is
 /// logged at info; later times at debug, so a slow UI can't flood the log.
 fn log_behind(guard: &AttachGuard, out: &Outbox, id: &str, why: Behind, times: u64) {
-    let (cause, offered, skipped) = match why {
-        Behind::Full { offered } => ("full", offered, 0),
-        Behind::Lagged { skipped } => ("lagged", 0, skipped),
+    let (cause, offered, skipped, delivered) = match why {
+        Behind::Full { offered } => ("full", offered, 0, 0),
+        Behind::Lagged { skipped, delivered } => ("lagged", 0, skipped, delivered),
     };
-    out.global()
-        .count_behind(matches!(why, Behind::Lagged { .. }));
+    let lagged = matches!(why, Behind::Lagged { .. });
+    out.global().count_behind(lagged, lagged && delivered == 0);
     let (queued, daemon_used) = (out.queued_output(), out.global().used());
     let connection = guard.connection;
     if times == 1 {
@@ -392,6 +396,7 @@ fn log_behind(guard: &AttachGuard, out: &Outbox, id: &str, why: Behind, times: u
             cause,
             offered,
             skipped,
+            delivered,
             queued,
             daemon_used,
             times,
@@ -404,6 +409,7 @@ fn log_behind(guard: &AttachGuard, out: &Outbox, id: &str, why: Behind, times: u
             cause,
             offered,
             skipped,
+            delivered,
             queued,
             daemon_used,
             times,

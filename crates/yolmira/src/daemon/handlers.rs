@@ -183,7 +183,7 @@ pub const DEBUG_PANIC: &str = "debug.panic";
 #[cfg(debug_assertions)]
 fn output_stats(state: &State) -> Value {
     let (limit, used, high, conn_high, resyncs) = state.output_budget.stats();
-    let (behind_full, behind_lagged) = state.output_budget.behind_counts();
+    let (behind_full, behind_lagged, behind_lagged_at_once) = state.output_budget.behind_counts();
     json!({
         "daemon_limit": limit,
         "daemon_used": used,
@@ -193,6 +193,7 @@ fn output_stats(state: &State) -> Value {
         "resyncs": resyncs,
         "behind_full": behind_full,
         "behind_lagged": behind_lagged,
+        "behind_lagged_at_once": behind_lagged_at_once,
     })
 }
 
