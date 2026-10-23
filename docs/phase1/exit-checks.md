@@ -91,7 +91,7 @@ In normal use (clients that keep up) the daemon stays in the tens of MB (memory 
   - a never-reading client is disconnected after 30 s as "not reading" and logged as `ipc.client_stalled`; meanwhile the UI got its approval prompt in 0.9 to 1.2 ms and answered it, before and after the disconnect;
   - one process opening 128 connections gets 16, and the UI still connects;
   - 8 processes fill all 128 slots, a 9th gets none, and the UI still gets in through its reserve.
-- **A client slower than its shell is resynced repeatedly:** about 8 times a second for the 20 ms-per-read test client. Each resync waits until that client has drained room for a whole snapshot, so the rate is paced by the client's own reading, and memory stays within the budgets.
+- **A client slower than its shell is resynced repeatedly:** about 8 times a second for the 20 ms-per-read test client. Each resync waits until that client has drained room for a whole snapshot, so the rate is paced by the client's own reading, and memory stays within the budgets. **Corrected 2026-10-23:** not paced by the client; a resync loop (below, "Open: resync loop").
 - **Whole suite:** `scripts/test.ps1` (17 test binaries) passed in 3 of 4 runs after the fix. E2E 9/9 (46.6 s). UI unit tests 5/5. App crate 13/13. clippy and fmt clean.
 
 **Open: one daemon crash, cause unknown.** In 1 of 4 full-suite runs, `a_never_reading_client_is_disconnected_and_the_ui_still_answers_prompts` failed: about 22 s into the test its daemon was no longer reported as running. The helper then started a new `yolmirad` on the same home, which crashed during startup:
@@ -128,6 +128,24 @@ Flat for the hour, and about 18× less than the overload-path soak's ~190 MB. An
 ### CI (first run, public repository)
 
 Run `39764484176` on `e63f713` (GitHub-hosted `windows-latest`, 2 vCPU): every test binary passed except `output_budget`, where `many_slow_clients_stay_within_the_daemon_budget` failed its precondition, not a budget: connection high water 5.4 of 8.0 MiB, daemon high water 58.2 of 64.0 MiB, **0 resyncs**. On the runner the three floods wrote too little for 12 slow clients to overrun a budget, so the test proved nothing and said so (its message wrongly reads "fell behind"). Locally the same test resyncs about 510 times. Fix proposed: slower slow clients in that test, and a correct message.
+
+The second run (`39775486129`, on `805cb8a`) failed the same test differently: the slow clients did fall behind (26 resyncs, daemon high water 64.0 of 64.0 MiB) but the **fast client was resynced** once, which the test forbids. So the proposed fix above was wrong and is withdrawn: it would have hidden this. Not reproduced locally in 3 runs pinned to 2 cores, nor in 3 pinned to 1 core.
+
+### Open: resync loop (found 2026-10-23)
+
+Diagnostics added (`6b92e51`, `cfda73d`; no behaviour change): the daemon logs each attachment's first fall behind at info (later ones at debug) with its cause, its connection's queued bytes and the daemon-wide budget in use, and `debug.output_stats` counts the causes. When the fast client is resynced, the test's failure message now includes those lines, so the next CI failure shows why.
+
+Local results (`output_budget`, all 4 tests pass):
+
+| Test | resyncs | refused by a budget | lagged the shell | of those, before passing on anything after a snapshot |
+|---|---|---|---|---|
+| `slow_client_stays_within_its_budget` | 228 | 1 | 227 | 227 |
+| `fast_client_on_the_same_shell_is_unaffected` | 232 | 1 | 231 | 231 |
+| `many_slow_clients_stay_within_the_daemon_budget` | 830 | 12 | 818 | 818 |
+
+A client falls behind on a budget once; after that, **every** resync is followed at once by a broadcast lag. `catch_up` takes the snapshot and a new subscription atomically, then encodes the 2 MiB snapshot; while it encodes, a flooding shell writes more than the per-shell broadcast holds (256 *chunks*, not bytes, and the chunks are small), so the new subscription has overflowed before the forwarder reads it. While the shell stays busy, a client that fell behind once gets only back-to-back snapshots, never live output, and each costs a ~2.8 MB encode (about 830 in 15 s in the 12-client test, ~2.3 GB encoded). Likely, not yet confirmed: on the 2-vCPU runner that CPU starves the fast client's forwarder past 256 chunks, which resynced it.
+
+Fix options, for review (not built): encode the snapshot while the forwarder keeps the new subscription's chunks (within the budgets) and queue them after it; size the broadcast window in bytes, or merge small PTY reads into larger chunks, rather than counting chunks. The old 1024-chunk buffer only made the window larger.
 
 ## Earlier automated runs (old name, superseded)
 
